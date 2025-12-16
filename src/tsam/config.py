@@ -212,7 +212,7 @@ class PredefinedConfig:
     """Predefined assignments for transferring results between aggregations.
 
     Use this to apply clustering and segmentation results from one aggregation
-    to another dataset. Get this from `result.predef` or create manually.
+    to another dataset. Get this from `result.predefined` or create manually.
 
     Parameters
     ----------
@@ -235,20 +235,20 @@ class PredefinedConfig:
     Examples
     --------
     >>> # From a previous result
-    >>> predef = result.predef
+    >>> predefined = result.predefined
 
     >>> # Save to file
     >>> import json
-    >>> with open("predef.json", "w") as f:
-    ...     json.dump(predef.to_dict(), f)
+    >>> with open("predefined.json", "w") as f:
+    ...     json.dump(predefined.to_dict(), f)
 
     >>> # Load from file
-    >>> with open("predef.json") as f:
+    >>> with open("predefined.json") as f:
     ...     data = json.load(f)
-    >>> predef = PredefinedConfig.from_dict(data)
+    >>> predefined = PredefinedConfig.from_dict(data)
 
     >>> # Apply to new data
-    >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=predef)
+    >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=predefined)
     """
 
     cluster_order: tuple[int, ...]

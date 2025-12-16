@@ -27,7 +27,7 @@ def aggregate(
     cluster: ClusterConfig | None = None,
     segments: SegmentConfig | None = None,
     extremes: ExtremeConfig | None = None,
-    predef: PredefinedConfig | dict | None = None,
+    predefined: PredefinedConfig | dict | None = None,
     rescale: bool = True,
     round_decimals: int | None = None,
 ) -> AggregationResult:
@@ -73,9 +73,9 @@ def aggregate(
         Configuration for preserving extreme periods.
         If not provided, no extreme period handling is applied.
 
-    predef : PredefinedConfig or dict, optional
+    predefined : PredefinedConfig or dict, optional
         Predefined assignments from a previous aggregation result.
-        Use `result.predef` to get this, or load from JSON with
+        Use `result.predefined` to get this, or load from JSON with
         `PredefinedConfig.from_dict()`. Overrides cluster/segment assignments.
 
     rescale : bool, default True
@@ -141,7 +141,7 @@ def aggregate(
     Transferring assignments to new data:
 
     >>> result1 = aggregate(df_wind, n_periods=8)
-    >>> result2 = aggregate(df_all, n_periods=8, predef=result1.predef)
+    >>> result2 = aggregate(df_all, n_periods=8, predefined=result1.predefined)
 
     See Also
     --------
@@ -164,13 +164,13 @@ def aggregate(
     if cluster is None:
         cluster = ClusterConfig()
 
-    # Apply predef overrides
-    if predef is not None:
+    # Apply predefined overrides
+    if predefined is not None:
         # Convert dict to PredefinedConfig if needed
-        if isinstance(predef, dict):
-            predef = PredefinedConfig.from_dict(predef)
+        if isinstance(predefined, dict):
+            predefined = PredefinedConfig.from_dict(predefined)
 
-        # Override cluster config with predef values
+        # Override cluster config with predefined values
         cluster_kwargs = {
             "method": cluster.method,
             "representation": cluster.representation,
@@ -179,29 +179,32 @@ def aggregate(
             "use_duration_curves": cluster.use_duration_curves,
             "include_period_sums": cluster.include_period_sums,
             "solver": cluster.solver,
-            "predef_cluster_order": predef.cluster_order,
+            "predef_cluster_order": predefined.cluster_order,
         }
-        if predef.cluster_centers is not None:
-            cluster_kwargs["predef_cluster_centers"] = predef.cluster_centers
+        if predefined.cluster_centers is not None:
+            cluster_kwargs["predef_cluster_centers"] = predefined.cluster_centers
         cluster = ClusterConfig(**cluster_kwargs)  # type: ignore[arg-type]
 
-        # Override segment config with predef values if present
-        if predef.segment_order is not None and predef.segment_durations is not None:
+        # Override segment config with predefined values if present
+        if (
+            predefined.segment_order is not None
+            and predefined.segment_durations is not None
+        ):
             if segments is None:
-                # Infer n_segments from the predef data
-                n_segments = len(predef.segment_durations[0])
+                # Infer n_segments from the predefined data
+                n_segments = len(predefined.segment_durations[0])
                 segments = SegmentConfig(
                     n_segments=n_segments,
-                    predef_segment_order=predef.segment_order,
-                    predef_segment_durations=predef.segment_durations,
+                    predef_segment_order=predefined.segment_order,
+                    predef_segment_durations=predefined.segment_durations,
                 )
             else:
                 # Merge with existing segment config
                 segments = SegmentConfig(
                     n_segments=segments.n_segments,
                     representation=segments.representation,
-                    predef_segment_order=predef.segment_order,
-                    predef_segment_durations=predef.segment_durations,
+                    predef_segment_order=predefined.segment_order,
+                    predef_segment_durations=predefined.segment_durations,
                     predef_segment_centers=segments.predef_segment_centers,
                 )
 

@@ -372,7 +372,7 @@ class AggregationResult:
         return tuple(result)
 
     @property
-    def predef(self) -> PredefinedConfig:
+    def predefined(self) -> PredefinedConfig:
         """Get predefined state for transferring to another aggregation.
 
         Returns a PredefinedConfig containing all assignment information needed
@@ -389,17 +389,17 @@ class AggregationResult:
         >>> result = tsam.aggregate(df, n_periods=8, segments=SegmentConfig(n_segments=6))
 
         >>> # Apply directly to new data
-        >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=result.predef)
+        >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=result.predefined)
 
         >>> # Save to file
         >>> import json
-        >>> with open("predef.json", "w") as f:
-        ...     json.dump(result.predef.to_dict(), f)
+        >>> with open("predefined.json", "w") as f:
+        ...     json.dump(result.predefined.to_dict(), f)
 
         >>> # Load and apply
-        >>> with open("predef.json") as f:
-        ...     predef = PredefinedConfig.from_dict(json.load(f))
-        >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=predef)
+        >>> with open("predefined.json") as f:
+        ...     predefined = PredefinedConfig.from_dict(json.load(f))
+        >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=predefined)
         """
         from tsam.config import PredefinedConfig
 
