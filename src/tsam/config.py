@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Any, Literal
 
 # Type aliases for clarity
 ClusterMethod = Literal[
@@ -205,6 +205,91 @@ class SegmentConfig:
                     "predef_segment_order must be provided when "
                     "predef_segment_centers is specified"
                 )
+
+
+@dataclass(frozen=True)
+class PredefinedConfig:
+    """Predefined assignments for transferring results between aggregations.
+
+    Use this to apply clustering and segmentation results from one aggregation
+    to another dataset. Get this from `result.predef` or create manually.
+
+    Parameters
+    ----------
+    cluster_order : tuple[int, ...]
+        Cluster assignments for each original period.
+        Length equals the number of original periods in the data.
+
+    cluster_centers : tuple[int, ...], optional
+        Indices of original periods used as cluster centers.
+        If not provided, centers will be recalculated.
+
+    segment_order : tuple[tuple[int, ...], ...], optional
+        Segment assignments per timestep, per typical period.
+        Only needed if transferring segmentation results.
+
+    segment_durations : tuple[tuple[int, ...], ...], optional
+        Duration (in timesteps) per segment, per typical period.
+        Required if segment_order is provided.
+
+    Examples
+    --------
+    >>> # From a previous result
+    >>> predef = result.predef
+
+    >>> # Save to file
+    >>> import json
+    >>> with open("predef.json", "w") as f:
+    ...     json.dump(predef.to_dict(), f)
+
+    >>> # Load from file
+    >>> with open("predef.json") as f:
+    ...     data = json.load(f)
+    >>> predef = PredefinedConfig.from_dict(data)
+
+    >>> # Apply to new data
+    >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=predef)
+    """
+
+    cluster_order: tuple[int, ...]
+    cluster_centers: tuple[int, ...] | None = None
+    segment_order: tuple[tuple[int, ...], ...] | None = None
+    segment_durations: tuple[tuple[int, ...], ...] | None = None
+
+    def __post_init__(self) -> None:
+        if self.segment_order is not None and self.segment_durations is None:
+            raise ValueError(
+                "segment_durations must be provided when segment_order is specified"
+            )
+        if self.segment_durations is not None and self.segment_order is None:
+            raise ValueError(
+                "segment_order must be provided when segment_durations is specified"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result: dict[str, Any] = {"cluster_order": list(self.cluster_order)}
+        if self.cluster_centers is not None:
+            result["cluster_centers"] = list(self.cluster_centers)
+        if self.segment_order is not None:
+            result["segment_order"] = [list(s) for s in self.segment_order]
+        if self.segment_durations is not None:
+            result["segment_durations"] = [list(s) for s in self.segment_durations]
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> PredefinedConfig:
+        """Create from dictionary (e.g., loaded from JSON)."""
+        kwargs = {"cluster_order": tuple(data["cluster_order"])}
+        if "cluster_centers" in data:
+            kwargs["cluster_centers"] = tuple(data["cluster_centers"])
+        if "segment_order" in data:
+            kwargs["segment_order"] = tuple(tuple(s) for s in data["segment_order"])
+        if "segment_durations" in data:
+            kwargs["segment_durations"] = tuple(
+                tuple(s) for s in data["segment_durations"]
+            )
+        return cls(**kwargs)
 
 
 @dataclass(frozen=True)

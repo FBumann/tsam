@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
+    from tsam.config import PredefinedConfig
     from tsam.plot import ResultPlotAccessor
     from tsam.timeseriesaggregation import TimeSeriesAggregation
 
@@ -369,6 +370,47 @@ class AggregationResult:
             result.append(durations)
 
         return tuple(result)
+
+    @property
+    def predef(self) -> PredefinedConfig:
+        """Get predefined state for transferring to another aggregation.
+
+        Returns a PredefinedConfig containing all assignment information needed
+        to reproduce this aggregation's clustering and segmentation on new data.
+
+        Returns
+        -------
+        PredefinedConfig
+            Config object with cluster_order, cluster_centers (optional),
+            segment_order (if segmentation), segment_durations (if segmentation).
+
+        Examples
+        --------
+        >>> result = tsam.aggregate(df, n_periods=8, segments=SegmentConfig(n_segments=6))
+
+        >>> # Apply directly to new data
+        >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=result.predef)
+
+        >>> # Save to file
+        >>> import json
+        >>> with open("predef.json", "w") as f:
+        ...     json.dump(result.predef.to_dict(), f)
+
+        >>> # Load and apply
+        >>> with open("predef.json") as f:
+        ...     predef = PredefinedConfig.from_dict(json.load(f))
+        >>> result2 = tsam.aggregate(new_data, n_periods=8, predef=predef)
+        """
+        from tsam.config import PredefinedConfig
+
+        return PredefinedConfig(
+            cluster_order=tuple(self.cluster_assignments.tolist()),
+            cluster_centers=tuple(self.cluster_center_indices.tolist())
+            if self.cluster_center_indices is not None
+            else None,
+            segment_order=self.segment_assignments,
+            segment_durations=self.segment_durations_tuple,
+        )
 
     @property
     def plot(self) -> ResultPlotAccessor:

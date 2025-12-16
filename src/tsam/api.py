@@ -11,6 +11,7 @@ from tsam.config import (
     REPRESENTATION_MAPPING,
     ClusterConfig,
     ExtremeConfig,
+    PredefinedConfig,
     SegmentConfig,
 )
 from tsam.result import AccuracyMetrics, AggregationResult
@@ -26,6 +27,7 @@ def aggregate(
     cluster: ClusterConfig | None = None,
     segments: SegmentConfig | None = None,
     extremes: ExtremeConfig | None = None,
+    predef: PredefinedConfig | dict | None = None,
     rescale: bool = True,
     round_decimals: int | None = None,
 ) -> AggregationResult:
@@ -70,6 +72,11 @@ def aggregate(
     extremes : ExtremeConfig, optional
         Configuration for preserving extreme periods.
         If not provided, no extreme period handling is applied.
+
+    predef : PredefinedConfig or dict, optional
+        Predefined assignments from a previous aggregation result.
+        Use `result.predef` to get this, or load from JSON with
+        `PredefinedConfig.from_dict()`. Overrides cluster/segment assignments.
 
     rescale : bool, default True
         Rescale typical periods to match the original data's mean.
@@ -131,6 +138,11 @@ def aggregate(
     ...     extremes=ExtremeConfig(max_timesteps=["demand"]),
     ... )
 
+    Transferring assignments to new data:
+
+    >>> result1 = aggregate(df_wind, n_periods=8)
+    >>> result2 = aggregate(df_all, n_periods=8, predef=result1.predef)
+
     See Also
     --------
     ClusterConfig : Clustering algorithm configuration
@@ -151,6 +163,47 @@ def aggregate(
     # Apply defaults
     if cluster is None:
         cluster = ClusterConfig()
+
+    # Apply predef overrides
+    if predef is not None:
+        # Convert dict to PredefinedConfig if needed
+        if isinstance(predef, dict):
+            predef = PredefinedConfig.from_dict(predef)
+
+        # Override cluster config with predef values
+        cluster_kwargs = {
+            "method": cluster.method,
+            "representation": cluster.representation,
+            "weights": cluster.weights,
+            "normalize_means": cluster.normalize_means,
+            "use_duration_curves": cluster.use_duration_curves,
+            "include_period_sums": cluster.include_period_sums,
+            "solver": cluster.solver,
+            "predef_cluster_order": predef.cluster_order,
+        }
+        if predef.cluster_centers is not None:
+            cluster_kwargs["predef_cluster_centers"] = predef.cluster_centers
+        cluster = ClusterConfig(**cluster_kwargs)  # type: ignore[arg-type]
+
+        # Override segment config with predef values if present
+        if predef.segment_order is not None and predef.segment_durations is not None:
+            if segments is None:
+                # Infer n_segments from the predef data
+                n_segments = len(predef.segment_durations[0])
+                segments = SegmentConfig(
+                    n_segments=n_segments,
+                    predef_segment_order=predef.segment_order,
+                    predef_segment_durations=predef.segment_durations,
+                )
+            else:
+                # Merge with existing segment config
+                segments = SegmentConfig(
+                    n_segments=segments.n_segments,
+                    representation=segments.representation,
+                    predef_segment_order=predef.segment_order,
+                    predef_segment_durations=predef.segment_durations,
+                    predef_segment_centers=segments.predef_segment_centers,
+                )
 
     # Validate segments against data
     if segments is not None:

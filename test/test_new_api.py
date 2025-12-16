@@ -322,6 +322,80 @@ class TestSegmentTransfer:
         assert result.segment_durations_tuple is None
 
 
+class TestPredef:
+    """Tests for the predef parameter and PredefinedConfig."""
+
+    def test_predef_property(self, sample_data):
+        """Test that predef property returns PredefinedConfig."""
+        from tsam import PredefinedConfig
+
+        result = aggregate(sample_data, n_periods=8)
+        predef = result.predef
+
+        assert isinstance(predef, PredefinedConfig)
+        assert len(predef.cluster_order) == len(result.cluster_assignments)
+
+    def test_predef_transfer(self, sample_data):
+        """Test transferring with predef parameter."""
+        result1 = aggregate(sample_data, n_periods=8)
+
+        # Transfer using predef
+        result2 = aggregate(sample_data, n_periods=8, predef=result1.predef)
+
+        # Results should match
+        pd.testing.assert_frame_equal(
+            result1.typical_periods,
+            result2.typical_periods,
+        )
+
+    def test_predef_with_segments(self, sample_data):
+        """Test predef transfer with segmentation."""
+        result1 = aggregate(
+            sample_data,
+            n_periods=8,
+            segments=SegmentConfig(n_segments=6),
+        )
+
+        # Transfer using predef
+        result2 = aggregate(sample_data, n_periods=8, predef=result1.predef)
+
+        # Should automatically apply segmentation
+        assert result2.n_segments == 6
+        pd.testing.assert_frame_equal(
+            result1.typical_periods,
+            result2.typical_periods,
+        )
+
+    def test_predef_from_dict(self, sample_data):
+        """Test predef transfer via dict (for JSON serialization)."""
+        from tsam import PredefinedConfig
+
+        result1 = aggregate(sample_data, n_periods=8)
+
+        # Convert to dict and back (simulates JSON save/load)
+        predef_dict = result1.predef.to_dict()
+        predef = PredefinedConfig.from_dict(predef_dict)
+
+        result2 = aggregate(sample_data, n_periods=8, predef=predef)
+
+        pd.testing.assert_frame_equal(
+            result1.typical_periods,
+            result2.typical_periods,
+        )
+
+    def test_predef_dict_directly(self, sample_data):
+        """Test passing dict directly to predef parameter."""
+        result1 = aggregate(sample_data, n_periods=8)
+
+        # Pass dict directly (API accepts both)
+        result2 = aggregate(sample_data, n_periods=8, predef=result1.predef.to_dict())
+
+        pd.testing.assert_frame_equal(
+            result1.typical_periods,
+            result2.typical_periods,
+        )
+
+
 class TestSegmentConfigValidation:
     """Tests for SegmentConfig validation."""
 
