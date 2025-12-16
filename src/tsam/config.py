@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+import pandas as pd
+
 # Type aliases for clarity
 ClusterMethod = Literal[
     "averaging",
@@ -265,6 +267,78 @@ class PredefinedConfig:
             raise ValueError(
                 "segment_order must be provided when segment_durations is specified"
             )
+
+    def __repr__(self) -> str:
+        n_original_periods = len(self.cluster_order)
+        n_typical_periods = len(set(self.cluster_order))
+        has_centers = self.cluster_centers is not None
+        has_segments = self.segment_order is not None
+
+        lines = [
+            "PredefinedConfig(",
+            f"  n_original_periods={n_original_periods},",
+            f"  n_typical_periods={n_typical_periods},",
+            f"  has_cluster_centers={has_centers},",
+        ]
+
+        if has_segments:
+            n_segments = len(self.segment_durations[0]) if self.segment_durations else 0
+            n_timesteps = len(self.segment_order[0]) if self.segment_order else 0
+            lines.append(f"  n_segments={n_segments},")
+            lines.append(f"  n_timesteps_per_period={n_timesteps},")
+
+        lines.append(")")
+        return "\n".join(lines)
+
+    def to_dataframe(self) -> pd.DataFrame:
+        """Convert to a readable DataFrame.
+
+        Returns a DataFrame with one row per original period showing
+        cluster assignments. If segments are defined, includes segment
+        information for each typical period.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with cluster_order indexed by original period.
+            If segments are present, includes additional columns.
+        """
+        # Base DataFrame with cluster assignments
+        df = pd.DataFrame(
+            {"cluster": list(self.cluster_order)},
+            index=pd.RangeIndex(len(self.cluster_order), name="original_period"),
+        )
+
+        if self.cluster_centers is not None:
+            # Add a column showing which periods are cluster centers
+            center_set = set(self.cluster_centers)
+            df["is_center"] = [i in center_set for i in range(len(self.cluster_order))]
+
+        return df
+
+    def segment_dataframe(self) -> pd.DataFrame | None:
+        """Get segment structure as a readable DataFrame.
+
+        Returns a DataFrame showing segment durations per typical period.
+        Returns None if no segmentation is defined.
+
+        Returns
+        -------
+        pd.DataFrame | None
+            DataFrame with typical periods as rows and segments as columns,
+            values are segment durations in timesteps.
+        """
+        if self.segment_durations is None:
+            return None
+
+        n_periods = len(self.segment_durations)
+        n_segments = len(self.segment_durations[0])
+
+        return pd.DataFrame(
+            list(self.segment_durations),
+            index=pd.RangeIndex(n_periods, name="typical_period"),
+            columns=pd.RangeIndex(n_segments, name="segment"),
+        )
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
