@@ -279,6 +279,20 @@ def _build_old_params(
         params["segmentRepresentationMethod"] = REPRESENTATION_MAPPING.get(
             segments.representation, "meanRepresentation"
         )
+
+        # Predefined segment parameters
+        if segments.predef_segment_order is not None:
+            params["predefSegmentOrder"] = [
+                list(s) for s in segments.predef_segment_order
+            ]
+        if segments.predef_segment_durations is not None:
+            params["predefSegmentDurations"] = [
+                list(s) for s in segments.predef_segment_durations
+            ]
+        if segments.predef_segment_centers is not None:
+            params["predefSegmentCenters"] = [
+                list(s) for s in segments.predef_segment_centers
+            ]
     else:
         params["segmentation"] = False
 

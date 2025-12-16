@@ -146,14 +146,65 @@ class SegmentConfig:
         - "mean": Average value of timesteps in segment
         - "medoid": Actual timestep closest to segment mean
         - "distribution": Preserve distribution within segment
+
+    predef_segment_order : tuple[tuple[int, ...], ...], optional
+        Predefined segment assignments per timestep, per typical period.
+        Use this to transfer segment assignments from one aggregation to another.
+        Outer tuple has one entry per typical period (length = n_periods).
+        Inner tuple has one entry per timestep (length = n_timesteps_per_period),
+        containing the segment index (0 to n_segments-1) for that timestep.
+
+    predef_segment_durations : tuple[tuple[int, ...], ...], optional
+        Predefined durations (in timesteps) per segment, per typical period.
+        Required when predef_segment_order is specified.
+        Outer tuple has one entry per typical period.
+        Inner tuple has one entry per segment, containing the number of
+        timesteps in that segment.
+
+    predef_segment_centers : tuple[tuple[int, ...], ...], optional
+        Predefined center indices per segment, per typical period.
+        When combined with predef_segment_order, uses the exact same
+        segment representatives instead of recalculating them.
+        Outer tuple has one entry per typical period.
+        Inner tuple has one entry per segment, containing the original
+        timestep index (within the period) used as the segment center.
     """
 
     n_segments: int
     representation: RepresentationMethod = "mean"
+    predef_segment_order: tuple[tuple[int, ...], ...] | None = None
+    predef_segment_durations: tuple[tuple[int, ...], ...] | None = None
+    predef_segment_centers: tuple[tuple[int, ...], ...] | None = None
 
     def __post_init__(self) -> None:
         if self.n_segments < 1:
             raise ValueError(f"n_segments must be positive, got {self.n_segments}")
+
+        # Validate predefined segment parameters
+        if self.predef_segment_order is not None:
+            if self.predef_segment_durations is None:
+                raise ValueError(
+                    "predef_segment_durations must be provided when "
+                    "predef_segment_order is specified"
+                )
+            if len(self.predef_segment_order) != len(self.predef_segment_durations):
+                raise ValueError(
+                    f"predef_segment_order ({len(self.predef_segment_order)} periods) "
+                    f"and predef_segment_durations ({len(self.predef_segment_durations)} periods) "
+                    "must have the same number of periods"
+                )
+        elif self.predef_segment_durations is not None:
+            raise ValueError(
+                "predef_segment_order must be provided when "
+                "predef_segment_durations is specified"
+            )
+
+        if self.predef_segment_centers is not None:
+            if self.predef_segment_order is None:
+                raise ValueError(
+                    "predef_segment_order must be provided when "
+                    "predef_segment_centers is specified"
+                )
 
 
 @dataclass(frozen=True)
