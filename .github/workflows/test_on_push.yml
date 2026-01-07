@@ -1,3 +1,5 @@
+name: Test on Push
+
 on:
   workflow_dispatch:
   push:
@@ -9,41 +11,32 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
       - name: Run ruff linter
-        run: ruff check src/ test/
+        run: uvx ruff check src/ test/
       - name: Run ruff formatter check
-        run: ruff format --check src/ test/
+        run: uvx ruff format --check src/ test/
 
-  TestPushCondaForgeDev:
-    name: Test conda-forge development version on ${{ matrix.runner_tag }}
+  Test:
+    name: Test on Python ${{ matrix.python-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        runner_tag: ["ubuntu-latest"]
-    uses: FZJ-IEK3-VSA/.github/.github/workflows/_run_single_conda_forge_test.yml@main
-    with:
-      runner_tag: ${{ matrix.runner_tag }}
-      requirements_file_name: requirements_dev.yml
-      # ipynb_example_folder: "examples"
-      examples_to_execute: "docs/source/examples_notebooks/aggregation_example.ipynb docs/source/examples_notebooks/aggregation_method_showcase.ipynb docs/source/examples_notebooks/aggregation_optiinput.ipynb docs/source/examples_notebooks/aggregation_representation.ipynb docs/source/examples_notebooks/aggregation_segmentation.ipynb docs/source/examples_notebooks/example_k_maxoids.ipynb docs/source/examples_notebooks/predefined_sequence_example.ipynb"
-      multiprocessing_example_string: "-n auto"
-  TestPushPyPIDev:
-    name: Test PyPi development version on ${{ matrix.runner_tag }}
-    strategy:
-      fail-fast: false
-      matrix:
-        runner_tag: ["ubuntu-latest"]
-    uses: FZJ-IEK3-VSA/.github/.github/workflows/_run_single_pypi_test.yml@main
-    with:
-      runner_tag: ${{ matrix.runner_tag }}
-      # ipynb_example_folder: "examples"
-      python_version: "3.13"
-      optional_dependency_PyPI_tag: "[develop]"
-      examples_to_execute: "docs/source/examples_notebooks/aggregation_example.ipynb docs/source/examples_notebooks/aggregation_method_showcase.ipynb docs/source/examples_notebooks/aggregation_optiinput.ipynb docs/source/examples_notebooks/aggregation_representation.ipynb docs/source/examples_notebooks/aggregation_segmentation.ipynb docs/source/examples_notebooks/example_k_maxoids.ipynb docs/source/examples_notebooks/predefined_sequence_example.ipynb"
-      multiprocessing_example_string: "-n auto"
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+      - name: Set up Python ${{ matrix.python-version }}
+        run: uv python install ${{ matrix.python-version }}
+      - name: Install package with dev dependencies
+        run: uv sync --extra develop
+      - name: Run tests
+        run: uv run pytest -n auto -vv
+      - name: Run example notebooks
+        run: |
+          uv run pytest -n auto -vv --dist loadscope --nbval-lax --nbval-current-env --nbval-cell-timeout=900000 --durations=20 \
+            docs/source/examples_notebooks/*.ipynb
