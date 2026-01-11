@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import tqdm
 
-from tsam.api import aggregate
+from tsam.api import _parse_duration_hours, aggregate
 from tsam.config import ClusterConfig, SegmentConfig
 
 if TYPE_CHECKING:
@@ -36,11 +36,11 @@ def _test_single_config_file(
     """Test a single configuration for parallel execution.
 
     Loads data from file - no DataFrame pickling.
-    Args contains (n_periods, n_segments, period_hours, resolution, data_path, cluster_dict).
+    Args contains (n_clusters, n_segments, period_hours, resolution, data_path, cluster_dict).
 
-    Returns (n_periods, n_segments, rmse, result).
+    Returns (n_clusters, n_segments, rmse, result).
     """
-    n_periods, n_segments, period_hours, resolution, data_path, cluster_dict = args
+    n_clusters, n_segments, period_hours, resolution, data_path, cluster_dict = args
     try:
         # Load data fresh from file - no pickling
         data = pd.read_csv(
@@ -50,23 +50,23 @@ def _test_single_config_file(
 
         result = aggregate(
             data,
-            n_periods=n_periods,
-            period_hours=period_hours,
-            resolution=resolution,
+            n_clusters=n_clusters,
+            period_duration=period_hours,
+            timestep_duration=resolution,
             cluster=cluster,
             segments=SegmentConfig(n_segments=n_segments),
         )
         rmse = float(result.accuracy.rmse.mean())
-        return (n_periods, n_segments, rmse, result)
+        return (n_clusters, n_segments, rmse, result)
     except Exception as e:
         logger.warning(
-            "Config (n_periods=%d, n_segments=%d) failed: %s: %s",
-            n_periods,
+            "Config (n_clusters=%d, n_segments=%d) failed: %s: %s",
+            n_clusters,
             n_segments,
             type(e).__name__,
             e,
         )
-        return (n_periods, n_segments, float("inf"), None)
+        return (n_clusters, n_segments, float("inf"), None)
 
 
 def _infer_resolution(data: pd.DataFrame) -> float:
@@ -111,7 +111,7 @@ def _parallel_context(
 def _test_configs(
     configs: list[tuple[int, int]],
     data: pd.DataFrame,
-    period_hours: int,
+    period_hours: float,
     resolution: float,
     cluster: ClusterConfig,
     n_workers: int,
@@ -121,7 +121,7 @@ def _test_configs(
     """Test a batch of configurations, either sequentially or in parallel.
 
     Args:
-        configs: List of (n_periods, n_segments) tuples to test.
+        configs: List of (n_clusters, n_segments) tuples to test.
         data: Input time series data.
         period_hours: Hours per period.
         resolution: Time resolution in hours.
@@ -131,7 +131,7 @@ def _test_configs(
         progress_desc: Description for progress bar.
 
     Returns:
-        List of (n_periods, n_segments, rmse, result) tuples.
+        List of (n_clusters, n_segments, rmse, result) tuples.
     """
     if not configs:
         return []
@@ -163,9 +163,9 @@ def _test_configs(
             try:
                 result = aggregate(
                     data,
-                    n_periods=n_per,
-                    period_hours=period_hours,
-                    resolution=resolution,
+                    n_clusters=n_per,
+                    period_duration=period_hours,
+                    timestep_duration=resolution,
                     cluster=cluster,
                     segments=SegmentConfig(n_segments=n_seg),
                 )
@@ -179,17 +179,17 @@ def _test_configs(
 
 
 def _make_tuning_result(
-    n_periods: int,
+    n_clusters: int,
     n_segments: int,
     rmse: float,
     result: AggregationResult,
 ) -> TuningResult:
     """Create a TuningResult from aggregation output."""
     return TuningResult(
-        optimal_n_periods=n_periods,
+        optimal_n_clusters=n_clusters,
         optimal_n_segments=n_segments,
         optimal_rmse=rmse,
-        history=[{"n_periods": n_periods, "n_segments": n_segments, "rmse": rmse}],
+        history=[{"n_clusters": n_clusters, "n_segments": n_segments, "rmse": rmse}],
         best_result=result,
     )
 
@@ -220,7 +220,7 @@ class TuningResult:
 
     Attributes
     ----------
-    optimal_n_periods : int
+    optimal_n_clusters : int
         Optimal number of typical periods.
     optimal_n_segments : int
         Optimal number of segments per period.
@@ -234,7 +234,7 @@ class TuningResult:
         All AggregationResults from tuning (only populated if save_all_results=True).
     """
 
-    optimal_n_periods: int
+    optimal_n_clusters: int
     optimal_n_segments: int
     optimal_rmse: float
     history: list[dict]
@@ -242,12 +242,12 @@ class TuningResult:
     all_results: list[AggregationResult] = field(default_factory=list)
 
 
-def periods_for_reduction(
+def find_clusters_for_reduction(
     n_timesteps: int,
     n_segments: int,
     data_reduction: float,
 ) -> int:
-    """Calculate max periods for a target data reduction.
+    """Calculate max clusters for a target data reduction.
 
     Parameters
     ----------
@@ -261,19 +261,19 @@ def periods_for_reduction(
     Returns
     -------
     int
-        Maximum number of periods that achieves the reduction.
+        Maximum number of clusters that achieves the reduction.
 
     Examples
     --------
-    >>> periods_for_reduction(8760, 24, 0.01)  # 1% of hourly year
+    >>> find_clusters_for_reduction(8760, 24, 0.01)  # 1% of hourly year
     3
     """
     return int(np.floor(data_reduction * float(n_timesteps) / n_segments))
 
 
-def segments_for_reduction(
+def find_segments_for_reduction(
     n_timesteps: int,
-    n_periods: int,
+    n_clusters: int,
     data_reduction: float,
 ) -> int:
     """Calculate max segments for a target data reduction.
@@ -282,7 +282,7 @@ def segments_for_reduction(
     ----------
     n_timesteps : int
         Number of original timesteps.
-    n_periods : int
+    n_clusters : int
         Number of typical periods.
     data_reduction : float
         Target reduction factor (e.g., 0.1 for 10% of original size).
@@ -294,18 +294,18 @@ def segments_for_reduction(
 
     Examples
     --------
-    >>> segments_for_reduction(8760, 8, 0.01)  # 1% with 8 periods
+    >>> find_segments_for_reduction(8760, 8, 0.01)  # 1% with 8 periods
     10
     """
-    return int(np.floor(data_reduction * float(n_timesteps) / n_periods))
+    return int(np.floor(data_reduction * float(n_timesteps) / n_clusters))
 
 
 def find_optimal_combination(
     data: pd.DataFrame,
     data_reduction: float,
     *,
-    period_hours: int = 24,
-    resolution: float | None = None,
+    period_duration: int | float | str = 24,
+    timestep_duration: float | str | None = None,
     cluster: ClusterConfig | None = None,
     show_progress: bool = True,
     save_all_results: bool = False,
@@ -323,12 +323,15 @@ def find_optimal_combination(
         Input time series data.
     data_reduction : float
         Target reduction factor (e.g., 0.01 for 1% of original size).
-    period_hours : int, default 24
-        Hours per period.
-    resolution : float, optional
-        Time resolution of input data in hours.
+    period_duration : int, float, or str, default 24
+        Length of each period. Accepts:
+        - int/float: hours (e.g., 24 for daily, 168 for weekly)
+        - str: pandas Timedelta string (e.g., '24h', '1d', '1w')
+    timestep_duration : float or str, optional
+        Time resolution of input data. Accepts:
+        - float: hours (e.g., 1.0 for hourly, 0.25 for 15-minute)
+        - str: pandas Timedelta string (e.g., '1h', '15min', '30min')
         If not provided, inferred from the datetime index.
-        Examples: 1.0 (hourly), 0.25 (15-minute), 0.5 (30-minute)
     cluster : ClusterConfig, optional
         Clustering configuration.
     show_progress : bool, default True
@@ -351,7 +354,7 @@ def find_optimal_combination(
     Examples
     --------
     >>> result = find_optimal_combination(df, data_reduction=0.01)
-    >>> print(f"Optimal: {result.optimal_n_periods} periods, "
+    >>> print(f"Optimal: {result.optimal_n_clusters} periods, "
     ...       f"{result.optimal_n_segments} segments")
 
     >>> # Use all CPUs for faster search (file-based, no DataFrame pickling)
@@ -360,11 +363,16 @@ def find_optimal_combination(
     if cluster is None:
         cluster = ClusterConfig()
 
-    if resolution is None:
-        resolution = _infer_resolution(data)
+    # Parse duration parameters to hours
+    period_hours = _parse_duration_hours(period_duration, "period_duration")
+    resolution = (
+        _parse_duration_hours(timestep_duration, "timestep_duration")
+        if timestep_duration is not None
+        else _infer_resolution(data)
+    )
 
     if resolution <= 0:
-        raise ValueError(f"Resolution must be positive, got {resolution}")
+        raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     n_timesteps = len(data)
     timesteps_per_period = int(period_hours / resolution)
@@ -419,24 +427,24 @@ def find_optimal_combination(
     best_periods = 1
     best_segments = 1
 
-    for n_periods, n_segments, rmse, result in results:
+    for n_clusters, n_segments, rmse, result in results:
         if result is not None:
             history.append(
-                {"n_periods": n_periods, "n_segments": n_segments, "rmse": rmse}
+                {"n_clusters": n_clusters, "n_segments": n_segments, "rmse": rmse}
             )
             if save_all_results:
                 all_results.append(result)
             if rmse < best_rmse:
                 best_rmse = rmse
                 best_result = result
-                best_periods = n_periods
+                best_periods = n_clusters
                 best_segments = n_segments
 
     if best_result is None:
         raise ValueError("No valid configuration found")
 
     return TuningResult(
-        optimal_n_periods=best_periods,
+        optimal_n_clusters=best_periods,
         optimal_n_segments=best_segments,
         optimal_rmse=best_rmse,
         history=history,
@@ -448,8 +456,8 @@ def find_optimal_combination(
 def find_pareto_front(
     data: pd.DataFrame,
     *,
-    period_hours: int = 24,
-    resolution: float | None = None,
+    period_duration: int | float | str = 24,
+    timestep_duration: float | str | None = None,
     max_timesteps: int | None = None,
     timesteps: Sequence[int] | None = None,
     cluster: ClusterConfig | None = None,
@@ -466,12 +474,15 @@ def find_pareto_front(
     ----------
     data : pd.DataFrame
         Input time series data.
-    period_hours : int, default 24
-        Hours per period.
-    resolution : float, optional
-        Time resolution of input data in hours.
+    period_duration : int, float, or str, default 24
+        Length of each period. Accepts:
+        - int/float: hours (e.g., 24 for daily, 168 for weekly)
+        - str: pandas Timedelta string (e.g., '24h', '1d', '1w')
+    timestep_duration : float or str, optional
+        Time resolution of input data. Accepts:
+        - float: hours (e.g., 1.0 for hourly, 0.25 for 15-minute)
+        - str: pandas Timedelta string (e.g., '1h', '15min', '30min')
         If not provided, inferred from the datetime index.
-        Examples: 1.0 (hourly), 0.25 (15-minute), 0.5 (30-minute)
     max_timesteps : int, optional
         Stop when reaching this many timesteps. If None, explores
         up to full resolution. Ignored if `timesteps` is provided.
@@ -499,7 +510,7 @@ def find_pareto_front(
     --------
     >>> pareto = find_pareto_front(df, max_timesteps=500)
     >>> for result in pareto:
-    ...     print(f"{result.optimal_n_periods}x{result.optimal_n_segments}: "
+    ...     print(f"{result.optimal_n_clusters}x{result.optimal_n_segments}: "
     ...           f"RMSE={result.optimal_rmse:.4f}")
 
     >>> # Use parallel execution for faster search
@@ -514,11 +525,16 @@ def find_pareto_front(
     if cluster is None:
         cluster = ClusterConfig()
 
-    if resolution is None:
-        resolution = _infer_resolution(data)
+    # Parse duration parameters to hours
+    period_hours = _parse_duration_hours(period_duration, "period_duration")
+    resolution = (
+        _parse_duration_hours(timestep_duration, "timestep_duration")
+        if timestep_duration is not None
+        else _infer_resolution(data)
+    )
 
     if resolution <= 0:
-        raise ValueError(f"Resolution must be positive, got {resolution}")
+        raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     n_timesteps = len(data)
     timesteps_per_period = int(period_hours / resolution)
@@ -562,7 +578,7 @@ def find_pareto_front(
 def _find_pareto_front_targeted(
     data: pd.DataFrame,
     timesteps: Sequence[int],
-    period_hours: int,
+    period_hours: float,
     resolution: float,
     max_periods: int,
     max_segments: int,
@@ -633,7 +649,7 @@ def _find_pareto_front_targeted(
 
 def _find_pareto_front_steepest(
     data: pd.DataFrame,
-    period_hours: int,
+    period_hours: float,
     resolution: float,
     max_periods: int,
     max_segments: int,
@@ -644,7 +660,7 @@ def _find_pareto_front_steepest(
 ) -> list[TuningResult]:
     """Find Pareto front using steepest descent exploration."""
     pareto_results: list[TuningResult] = []
-    n_periods = 1
+    n_clusters = 1
     n_segments = 1
 
     pbar = None
@@ -653,11 +669,11 @@ def _find_pareto_front_steepest(
 
     def update_progress() -> None:
         if pbar is not None:
-            pbar.update(n_segments * n_periods - pbar.n)
+            pbar.update(n_segments * n_clusters - pbar.n)
 
     # Start with (1, 1)
     results = _test_configs(
-        [(n_periods, n_segments)],
+        [(n_clusters, n_segments)],
         data,
         period_hours,
         resolution,
@@ -668,20 +684,20 @@ def _find_pareto_front_steepest(
         _, _, rmse, agg_result = results[0]
         if agg_result is not None:
             pareto_results.append(
-                _make_tuning_result(n_periods, n_segments, rmse, agg_result)
+                _make_tuning_result(n_clusters, n_segments, rmse, agg_result)
             )
 
     # Steepest descent phase
     while (
-        n_periods < max_periods
+        n_clusters < max_periods
         and n_segments < max_segments
-        and (n_segments + 1) * n_periods <= max_timesteps
-        and n_segments * (n_periods + 1) <= max_timesteps
+        and (n_segments + 1) * n_clusters <= max_timesteps
+        and n_segments * (n_clusters + 1) <= max_timesteps
     ):
         # Test both directions
         candidates = [
-            (n_periods, n_segments + 1),
-            (n_periods + 1, n_segments),
+            (n_clusters, n_segments + 1),
+            (n_clusters + 1, n_segments),
         ]
         results = _test_configs(
             candidates,
@@ -699,7 +715,7 @@ def _find_pareto_front_steepest(
             pareto_results[-1].optimal_rmse if pareto_results else float("inf")
         )
         gradient_seg = (
-            (current_rmse - rmse_seg) / n_periods if rmse_seg < float("inf") else 0
+            (current_rmse - rmse_seg) / n_clusters if rmse_seg < float("inf") else 0
         )
         gradient_per = (
             (current_rmse - rmse_per) / n_segments if rmse_per < float("inf") else 0
@@ -707,14 +723,14 @@ def _find_pareto_front_steepest(
 
         # Follow steeper gradient
         if gradient_per > gradient_seg and result_per:
-            n_periods += 1
+            n_clusters += 1
             pareto_results.append(
-                _make_tuning_result(n_periods, n_segments, rmse_per, result_per)
+                _make_tuning_result(n_clusters, n_segments, rmse_per, result_per)
             )
         elif result_seg:
             n_segments += 1
             pareto_results.append(
-                _make_tuning_result(n_periods, n_segments, rmse_seg, result_seg)
+                _make_tuning_result(n_clusters, n_segments, rmse_seg, result_seg)
             )
         else:
             break
@@ -723,9 +739,9 @@ def _find_pareto_front_steepest(
 
     # Continue with periods only
     remaining_periods = []
-    while n_periods < max_periods and n_segments * (n_periods + 1) <= max_timesteps:
-        n_periods += 1
-        remaining_periods.append((n_periods, n_segments))
+    while n_clusters < max_periods and n_segments * (n_clusters + 1) <= max_timesteps:
+        n_clusters += 1
+        remaining_periods.append((n_clusters, n_segments))
 
     if remaining_periods:
         results = _test_configs(
@@ -744,9 +760,9 @@ def _find_pareto_front_steepest(
 
     # Continue with segments only
     remaining_segments = []
-    while n_segments < max_segments and (n_segments + 1) * n_periods <= max_timesteps:
+    while n_segments < max_segments and (n_segments + 1) * n_clusters <= max_timesteps:
         n_segments += 1
-        remaining_segments.append((n_periods, n_segments))
+        remaining_segments.append((n_clusters, n_segments))
 
     if remaining_segments:
         results = _test_configs(

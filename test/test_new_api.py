@@ -19,10 +19,10 @@ class TestAggregate:
 
     def test_basic_aggregation(self, sample_data):
         """Test basic aggregation with minimal parameters."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
 
-        assert result.typical_periods is not None
-        assert result.n_periods == 8
+        assert result.cluster_representatives is not None
+        assert result.n_clusters == 8
         assert len(result.cluster_weights) == 8
         assert result.accuracy is not None
 
@@ -30,21 +30,21 @@ class TestAggregate:
         """Test aggregation with custom cluster configuration."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             cluster=ClusterConfig(
                 method="kmeans",
                 representation="mean",
             ),
         )
 
-        assert result.n_periods == 8
-        assert result.typical_periods is not None
+        assert result.n_clusters == 8
+        assert result.cluster_representatives is not None
 
     def test_with_segmentation(self, sample_data):
         """Test aggregation with segmentation."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=12),
         )
 
@@ -58,7 +58,7 @@ class TestAggregate:
 
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             extremes=ExtremeConfig(
                 method="append",
                 max_value=[col],
@@ -66,27 +66,27 @@ class TestAggregate:
         )
 
         # With append, we should have more periods
-        assert result.n_periods >= 8
+        assert result.n_clusters >= 8
 
     def test_result_reconstruct(self, sample_data):
         """Test that reconstruction works."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
         reconstructed = result.reconstruct()
 
         assert reconstructed.shape == sample_data.shape
 
     def test_result_to_dict(self, sample_data):
         """Test that to_dict works."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
         data = result.to_dict()
 
-        assert "typical_periods" in data
+        assert "cluster_representatives" in data
         assert "cluster_assignments" in data
         assert "accuracy" in data
 
     def test_accuracy_metrics(self, sample_data):
         """Test accuracy metrics."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
 
         assert hasattr(result.accuracy, "rmse")
         assert hasattr(result.accuracy, "mae")
@@ -97,25 +97,25 @@ class TestAggregate:
 class TestValidation:
     """Tests for input validation."""
 
-    def test_invalid_n_periods(self, sample_data):
-        """Test that invalid n_periods raises error."""
-        with pytest.raises(ValueError, match="n_periods"):
-            aggregate(sample_data, n_periods=0)
+    def test_invalid_n_clusters(self, sample_data):
+        """Test that invalid n_clusters raises error."""
+        with pytest.raises(ValueError, match="n_clusters"):
+            aggregate(sample_data, n_clusters=0)
 
-        with pytest.raises(ValueError, match="n_periods"):
-            aggregate(sample_data, n_periods=-1)
+        with pytest.raises(ValueError, match="n_clusters"):
+            aggregate(sample_data, n_clusters=-1)
 
     def test_invalid_data_type(self):
         """Test that non-DataFrame data raises error."""
         with pytest.raises(TypeError, match="DataFrame"):
-            aggregate([1, 2, 3], n_periods=8)
+            aggregate([1, 2, 3], n_clusters=8)
 
     def test_invalid_extreme_columns(self, sample_data):
         """Test that invalid extreme columns raise error."""
         with pytest.raises(ValueError, match="not found"):
             aggregate(
                 sample_data,
-                n_periods=8,
+                n_clusters=8,
                 extremes=ExtremeConfig(max_value=["nonexistent_column"]),
             )
 
@@ -124,7 +124,7 @@ class TestValidation:
         with pytest.raises(ValueError, match="not found"):
             aggregate(
                 sample_data,
-                n_periods=8,
+                n_clusters=8,
                 cluster=ClusterConfig(weights={"nonexistent": 1.0}),
             )
 
@@ -133,8 +133,8 @@ class TestValidation:
         with pytest.raises(ValueError, match="n_segments"):
             aggregate(
                 sample_data,
-                n_periods=8,
-                period_hours=24,
+                n_clusters=8,
+                period_duration=24,
                 segments=SegmentConfig(n_segments=100),
             )
 
@@ -179,7 +179,7 @@ class TestAssignments:
 
     def test_assignments_basic(self, sample_data):
         """Test basic assignments DataFrame structure."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
         assignments = result.assignments
 
         # Should have same length as original data
@@ -200,7 +200,7 @@ class TestAssignments:
         """Test assignments includes segment_idx when segmentation is used."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
         assignments = result.assignments
@@ -214,7 +214,7 @@ class TestAssignments:
 
     def test_assignments_values_valid(self, sample_data):
         """Test that assignment values are within expected ranges."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
         assignments = result.assignments
 
         # Period indices should be sequential
@@ -230,7 +230,7 @@ class TestAssignments:
 
         # Cluster indices should be in valid range
         assert assignments["cluster_idx"].min() >= 0
-        assert assignments["cluster_idx"].max() < result.n_periods
+        assert assignments["cluster_idx"].max() < result.n_clusters
 
 
 class TestSegmentTransfer:
@@ -240,7 +240,7 @@ class TestSegmentTransfer:
         """Test that segment_order is available via clustering property."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
@@ -250,7 +250,7 @@ class TestSegmentTransfer:
         assert seg_assignments is not None
 
         # Should have one tuple per typical period
-        assert len(seg_assignments) == result.n_periods
+        assert len(seg_assignments) == result.n_clusters
 
         # Each inner tuple should have length equal to timesteps per period
         for period_assignments in seg_assignments:
@@ -260,7 +260,7 @@ class TestSegmentTransfer:
         """Test that segment_durations is available via clustering property."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
@@ -270,7 +270,7 @@ class TestSegmentTransfer:
         assert seg_durations is not None
 
         # Should have one tuple per typical period
-        assert len(seg_durations) == result.n_periods
+        assert len(seg_durations) == result.n_clusters
 
         # Each inner tuple should have n_segments elements
         for period_durations in seg_durations:
@@ -285,7 +285,7 @@ class TestSegmentTransfer:
         # First aggregation
         result1 = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
@@ -294,13 +294,13 @@ class TestSegmentTransfer:
 
         # Results should match
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_segment_properties_none_without_segmentation(self, sample_data):
         """Test that segment properties return None without segmentation."""
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
 
         assert result.clustering.segment_order is None
         assert result.clustering.segment_durations is None
@@ -329,15 +329,15 @@ class TestClusteringResult:
 
         # Results should match
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_clustering_apply_with_segments(self, sample_data):
         """Test clustering apply with segmentation."""
         result1 = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
@@ -347,15 +347,15 @@ class TestClusteringResult:
         # Should automatically apply segmentation
         assert result2.n_segments == 6
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_clustering_from_dict(self, sample_data):
         """Test clustering transfer via dict (for JSON serialization)."""
         from tsam import ClusteringResult
 
-        result1 = aggregate(sample_data, n_periods=8)
+        result1 = aggregate(sample_data, n_clusters=8)
 
         # Convert to dict and back (simulates JSON save/load)
         clustering_dict = result1.clustering.to_dict()
@@ -364,8 +364,8 @@ class TestClusteringResult:
         result2 = clustering.apply(sample_data)
 
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_clustering_json_roundtrip(self, sample_data, tmp_path):
@@ -503,8 +503,8 @@ class TestDeterministicPreservation:
 
         # Typical periods should be identical
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_rescale_setting_preserved(self, sample_data, tmp_path):
@@ -628,3 +628,59 @@ class TestSegmentCenters:
             result1.typical_periods,
             result2.typical_periods,
         )
+
+
+class TestDurationParsing:
+    """Tests for pandas Timedelta string parsing in duration parameters."""
+
+    def test_period_duration_string(self, sample_data):
+        """Test that period_duration accepts pandas Timedelta strings."""
+        # All these should produce equivalent results
+        result_int = aggregate(sample_data, n_clusters=8, period_duration=24)
+        result_float = aggregate(sample_data, n_clusters=8, period_duration=24.0)
+        result_hours = aggregate(sample_data, n_clusters=8, period_duration="24h")
+        result_day = aggregate(sample_data, n_clusters=8, period_duration="1d")
+
+        # All should produce same typical periods
+        pd.testing.assert_frame_equal(
+            result_int.cluster_representatives,
+            result_hours.cluster_representatives,
+        )
+        pd.testing.assert_frame_equal(
+            result_int.cluster_representatives,
+            result_day.cluster_representatives,
+        )
+        pd.testing.assert_frame_equal(
+            result_int.cluster_representatives,
+            result_float.cluster_representatives,
+        )
+
+    def test_timestep_duration_string(self, sample_data):
+        """Test that timestep_duration accepts pandas Timedelta strings."""
+        # Should be equivalent: 1.0 hours and '1h'
+        result_float = aggregate(
+            sample_data, n_clusters=8, period_duration=24, timestep_duration=1.0
+        )
+        result_str = aggregate(
+            sample_data, n_clusters=8, period_duration="24h", timestep_duration="1h"
+        )
+
+        pd.testing.assert_frame_equal(
+            result_float.cluster_representatives,
+            result_str.cluster_representatives,
+        )
+
+    def test_invalid_duration_string(self, sample_data):
+        """Test that invalid duration strings raise clear errors."""
+        with pytest.raises(ValueError, match="period_duration"):
+            aggregate(sample_data, n_clusters=8, period_duration="invalid")
+
+    def test_invalid_duration_type(self, sample_data):
+        """Test that wrong types raise TypeError."""
+        with pytest.raises(TypeError, match="period_duration"):
+            aggregate(sample_data, n_clusters=8, period_duration=[24])
+
+    def test_negative_duration(self, sample_data):
+        """Test that negative durations raise ValueError."""
+        with pytest.raises(ValueError, match="positive"):
+            aggregate(sample_data, n_clusters=8, period_duration=-24)

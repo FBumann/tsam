@@ -24,7 +24,6 @@ RepresentationMethod = Literal[
     "mean",
     "medoid",
     "maxoid",
-    "duration",
     "distribution",
     "distribution_minmax",
     "minmax_mean",
@@ -59,7 +58,6 @@ class ClusterConfig:
         - "mean": Centroid (average of cluster members)
         - "medoid": Actual period closest to centroid
         - "maxoid": Actual period most dissimilar to others
-        - "duration": Preserve value distribution (duration curve)
         - "distribution": Preserve value distribution (duration curve)
         - "distribution_minmax": Distribution + preserve min/max values
         - "minmax_mean": Combine min/max/mean per timestep
@@ -74,7 +72,7 @@ class ClusterConfig:
         Higher weight = more influence on clustering.
         Example: {"demand": 2.0, "solar": 1.0}
 
-    normalize_means : bool, default False
+    normalize_column_means : bool, default False
         Normalize all columns to the same mean before clustering.
         Useful when columns have very different scales.
 
@@ -94,7 +92,7 @@ class ClusterConfig:
     method: ClusterMethod = "hierarchical"
     representation: RepresentationMethod | None = None
     weights: dict[str, float] | None = None
-    normalize_means: bool = False
+    normalize_column_means: bool = False
     use_duration_curves: bool = False
     include_period_sums: bool = False
     solver: Solver = "highs"
@@ -122,8 +120,8 @@ class ClusterConfig:
             result["representation"] = self.representation
         if self.weights is not None:
             result["weights"] = self.weights
-        if self.normalize_means:
-            result["normalize_means"] = self.normalize_means
+        if self.normalize_column_means:
+            result["normalize_column_means"] = self.normalize_column_means
         if self.use_duration_curves:
             result["use_duration_curves"] = self.use_duration_curves
         if self.include_period_sums:
@@ -139,7 +137,7 @@ class ClusterConfig:
             method=data.get("method", "hierarchical"),
             representation=data.get("representation"),
             weights=data.get("weights"),
-            normalize_means=data.get("normalize_means", False),
+            normalize_column_means=data.get("normalize_column_means", False),
             use_duration_curves=data.get("use_duration_curves", False),
             include_period_sums=data.get("include_period_sums", False),
             solver=data.get("solver", "highs"),
@@ -158,7 +156,7 @@ class SegmentConfig:
     n_segments : int
         Number of segments per period.
         Must be less than or equal to the number of timesteps per period.
-        Example: period_hours=24 with hourly data has 24 timesteps,
+        Example: period_duration=24 with hourly data has 24 timesteps,
         so n_segments could be 1-24.
 
     representation : str, default "mean"
@@ -175,7 +173,7 @@ class SegmentConfig:
         if self.n_segments < 1:
             raise ValueError(f"n_segments must be positive, got {self.n_segments}")
         # Note: Upper bound validation (n_segments <= timesteps_per_period)
-        # is performed in api.aggregate() when period_hours is known.
+        # is performed in api.aggregate() when period_duration is known.
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
@@ -218,7 +216,7 @@ class ClusteringResult:
         Indices of original periods used as cluster centers.
         If not provided, centers will be recalculated when applying.
 
-    segment_order : tuple[tuple[int, ...], ...], optional
+    segment_assignments : tuple[tuple[int, ...], ...], optional
         Segment assignments per timestep, per typical period.
         Only present if segmentation was used.
 
@@ -271,9 +269,9 @@ class ClusteringResult:
 
     # === Transfer fields (used by apply()) ===
     period_hours: int
-    cluster_order: tuple[int, ...]
+    cluster_assignments: tuple[int, ...]
     cluster_centers: tuple[int, ...] | None = None
-    segment_order: tuple[tuple[int, ...], ...] | None = None
+    segment_assignments: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
     segment_centers: tuple[tuple[int, ...], ...] | None = None
     rescale: bool = True
@@ -287,28 +285,28 @@ class ClusteringResult:
     extremes_config: ExtremeConfig | None = None
 
     def __post_init__(self) -> None:
-        if self.segment_order is not None and self.segment_durations is None:
+        if self.segment_assignments is not None and self.segment_durations is None:
             raise ValueError(
-                "segment_durations must be provided when segment_order is specified"
+                "segment_durations must be provided when segment_assignments is specified"
             )
-        if self.segment_durations is not None and self.segment_order is None:
+        if self.segment_durations is not None and self.segment_assignments is None:
             raise ValueError(
-                "segment_order must be provided when segment_durations is specified"
+                "segment_assignments must be provided when segment_durations is specified"
             )
-        if self.segment_centers is not None and self.segment_order is None:
+        if self.segment_centers is not None and self.segment_assignments is None:
             raise ValueError(
-                "segment_order must be provided when segment_centers is specified"
+                "segment_assignments must be provided when segment_centers is specified"
             )
 
     @property
-    def n_periods(self) -> int:
-        """Number of typical periods (clusters)."""
-        return len(set(self.cluster_order))
+    def n_clusters(self) -> int:
+        """Number of clusters (typical periods)."""
+        return len(set(self.cluster_assignments))
 
     @property
     def n_original_periods(self) -> int:
         """Number of original periods in the source data."""
-        return len(self.cluster_order)
+        return len(self.cluster_assignments)
 
     @property
     def n_segments(self) -> int | None:
@@ -319,19 +317,21 @@ class ClusteringResult:
 
     def __repr__(self) -> str:
         has_centers = self.cluster_centers is not None
-        has_segments = self.segment_order is not None
+        has_segments = self.segment_assignments is not None
 
         lines = [
             "ClusteringResult(",
             f"  period_hours={self.period_hours},",
             f"  n_original_periods={self.n_original_periods},",
-            f"  n_periods={self.n_periods},",
+            f"  n_clusters={self.n_clusters},",
             f"  has_cluster_centers={has_centers},",
         ]
 
         if has_segments:
             n_segments = len(self.segment_durations[0]) if self.segment_durations else 0
-            n_timesteps = len(self.segment_order[0]) if self.segment_order else 0
+            n_timesteps = (
+                len(self.segment_assignments[0]) if self.segment_assignments else 0
+            )
             has_seg_centers = self.segment_centers is not None
             lines.append(f"  n_segments={n_segments},")
             lines.append(f"  n_timesteps_per_period={n_timesteps},")
@@ -352,13 +352,15 @@ class ClusteringResult:
             DataFrame with cluster_order indexed by original period.
         """
         df = pd.DataFrame(
-            {"cluster": list(self.cluster_order)},
-            index=pd.RangeIndex(len(self.cluster_order), name="original_period"),
+            {"cluster": list(self.cluster_assignments)},
+            index=pd.RangeIndex(len(self.cluster_assignments), name="original_period"),
         )
 
         if self.cluster_centers is not None:
             center_set = set(self.cluster_centers)
-            df["is_center"] = [i in center_set for i in range(len(self.cluster_order))]
+            df["is_center"] = [
+                i in center_set for i in range(len(self.cluster_assignments))
+            ]
 
         return df
 
@@ -377,12 +379,12 @@ class ClusteringResult:
         if self.segment_durations is None:
             return None
 
-        n_periods = len(self.segment_durations)
+        n_clusters = len(self.segment_durations)
         n_segments = len(self.segment_durations[0])
 
         return pd.DataFrame(
             list(self.segment_durations),
-            index=pd.RangeIndex(n_periods, name="typical_period"),
+            index=pd.RangeIndex(n_clusters, name="cluster"),
             columns=pd.RangeIndex(n_segments, name="segment"),
         )
 
@@ -391,14 +393,14 @@ class ClusteringResult:
         # Transfer fields (always included)
         result: dict[str, Any] = {
             "period_hours": self.period_hours,
-            "cluster_order": list(self.cluster_order),
+            "cluster_assignments": list(self.cluster_assignments),
             "rescale": self.rescale,
             "representation": self.representation,
         }
         if self.cluster_centers is not None:
             result["cluster_centers"] = list(self.cluster_centers)
-        if self.segment_order is not None:
-            result["segment_order"] = [list(s) for s in self.segment_order]
+        if self.segment_assignments is not None:
+            result["segment_assignments"] = [list(s) for s in self.segment_assignments]
         if self.segment_durations is not None:
             result["segment_durations"] = [list(s) for s in self.segment_durations]
         if self.segment_centers is not None:
@@ -422,14 +424,16 @@ class ClusteringResult:
         # Transfer fields
         kwargs: dict[str, Any] = {
             "period_hours": data["period_hours"],
-            "cluster_order": tuple(data["cluster_order"]),
+            "cluster_assignments": tuple(data["cluster_assignments"]),
             "rescale": data.get("rescale", True),
             "representation": data.get("representation", "medoid"),
         }
         if "cluster_centers" in data:
             kwargs["cluster_centers"] = tuple(data["cluster_centers"])
-        if "segment_order" in data:
-            kwargs["segment_order"] = tuple(tuple(s) for s in data["segment_order"])
+        if "segment_assignments" in data:
+            kwargs["segment_assignments"] = tuple(
+                tuple(s) for s in data["segment_assignments"]
+            )
         if "segment_durations" in data:
             kwargs["segment_durations"] = tuple(
                 tuple(s) for s in data["segment_durations"]
@@ -550,7 +554,7 @@ class ClusteringResult:
         # Use stored segment config if available, otherwise build from transfer fields
         segments: SegmentConfig | None = None
         n_segments: int | None = None
-        if self.segment_order is not None and self.segment_durations is not None:
+        if self.segment_assignments is not None and self.segment_durations is not None:
             n_segments = len(self.segment_durations[0])
             segments = self.segment_config or SegmentConfig(
                 n_segments=n_segments,
@@ -560,19 +564,19 @@ class ClusteringResult:
         # Build old API parameters, passing predefined values directly
         old_params = _build_old_params(
             data=data,
-            n_periods=self.n_periods,
+            n_clusters=self.n_clusters,
             period_hours=self.period_hours,
             resolution=effective_resolution,
             cluster=cluster,
             segments=segments,
             extremes=None,
-            rescale=self.rescale,
+            preserve_column_means=self.rescale,
             round_decimals=round_decimals,
             numerical_tolerance=numerical_tolerance,
             # Predefined values from this ClusteringResult
-            predef_cluster_order=self.cluster_order,
+            predef_cluster_assignments=self.cluster_assignments,
             predef_cluster_centers=self.cluster_centers,
-            predef_segment_order=self.segment_order,
+            predef_segment_assignments=self.segment_assignments,
             predef_segment_durations=self.segment_durations,
             predef_segment_centers=self.segment_centers,
         )
@@ -612,16 +616,16 @@ class ClusteringResult:
             cluster_config=cluster,
             segment_config=segments,
             extremes_config=self.extremes_config,
-            rescale=self.rescale,
+            preserve_column_means=self.rescale,
             resolution=effective_resolution,
         )
 
         # Build result object
         return AggregationResult(
-            typical_periods=typical_periods,
+            cluster_representatives=typical_periods,
             cluster_weights=dict(agg.clusterPeriodNoOccur),
             n_timesteps_per_period=agg.timeStepsPerPeriod,
-            segment_durations=agg.segmentDurationDict if n_segments else None,
+            segment_durations=self.segment_durations,
             accuracy=accuracy,
             clustering_duration=getattr(agg, "clusteringDuration", 0.0),
             clustering=clustering_result,
@@ -715,7 +719,6 @@ REPRESENTATION_MAPPING: dict[RepresentationMethod, str] = {
     "mean": "meanRepresentation",
     "medoid": "medoidRepresentation",
     "maxoid": "maxoidRepresentation",
-    "duration": "durationRepresentation",
     "distribution": "distributionRepresentation",
     "distribution_minmax": "distributionAndMinMaxRepresentation",
     "minmax_mean": "minmaxmeanRepresentation",
