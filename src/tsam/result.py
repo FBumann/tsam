@@ -170,6 +170,7 @@ class AggregationResult:
         dict
             Dictionary containing all result data in serializable format.
         """
+        clustering = self.clustering
         return {
             "typical_periods": self.typical_periods.to_dict(),
             "cluster_assignments": self.cluster_assignments.tolist(),
@@ -178,8 +179,8 @@ class AggregationResult:
             "n_timesteps_per_period": self.n_timesteps_per_period,
             "n_segments": self.n_segments,
             "segment_durations": self.segment_durations,
-            "segment_assignments": self.segment_assignments,
-            "segment_durations_tuple": self.segment_durations_tuple,
+            "segment_assignments": clustering.segment_order,
+            "segment_durations_tuple": clustering.segment_durations,
             "cluster_center_indices": self.cluster_center_indices.tolist()
             if self.cluster_center_indices is not None
             else None,
@@ -293,91 +294,6 @@ class AggregationResult:
         return result_df
 
     @property
-    def segment_assignments(self) -> tuple[tuple[int, ...], ...] | None:
-        """Get segment assignments per typical period.
-
-        Returns the segment index for each timestep within each typical period.
-        This is included in `result.clustering` for transfer to other data.
-
-        Returns
-        -------
-        tuple[tuple[int, ...], ...] | None
-            Tuple of tuples, one per typical period. Each inner tuple contains
-            segment indices (0 to n_segments-1) for each timestep in that period.
-            Returns None if segmentation was not used.
-
-        Examples
-        --------
-        >>> result = tsam.aggregate(df, n_periods=8, segments=SegmentConfig(n_segments=6))
-        >>> result.segment_assignments[0]
-        (0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5)
-
-        >>> # Transfer to another dataset using ClusteringResult
-        >>> result2 = result.clustering.apply(other_data)
-        """
-        if self.n_segments is None:
-            return None
-
-        agg = self._aggregation
-        if not hasattr(agg, "segmentedNormalizedTypicalPeriods"):
-            return None
-
-        result = []
-        segmented_df = agg.segmentedNormalizedTypicalPeriods
-
-        for period_idx in segmented_df.index.get_level_values(0).unique():
-            period_data = segmented_df.loc[period_idx]
-            # Reconstruct full assignment from segment structure
-            # Index levels: Segment Step, Segment Duration, Original Start Step
-            assignments = []
-            for seg_step, seg_dur, _orig_start in period_data.index:
-                assignments.extend([int(seg_step)] * int(seg_dur))
-            result.append(tuple(assignments))
-
-        return tuple(result)
-
-    @property
-    def segment_durations_tuple(self) -> tuple[tuple[int, ...], ...] | None:
-        """Get segment durations per typical period.
-
-        Returns the duration (number of timesteps) for each segment within
-        each typical period. This is included in `result.clustering` for
-        transfer to other data.
-
-        Returns
-        -------
-        tuple[tuple[int, ...], ...] | None
-            Tuple of tuples, one per typical period. Each inner tuple contains
-            the duration (in timesteps) of each segment.
-            Returns None if segmentation was not used.
-
-        Examples
-        --------
-        >>> result = tsam.aggregate(df, n_periods=8, segments=SegmentConfig(n_segments=6))
-        >>> result.segment_durations_tuple[0]
-        (4, 3, 4, 3, 4, 6)  # 6 segments with varying lengths summing to 24
-        """
-        if self.n_segments is None:
-            return None
-
-        agg = self._aggregation
-        if not hasattr(agg, "segmentedNormalizedTypicalPeriods"):
-            return None
-
-        result = []
-        segmented_df = agg.segmentedNormalizedTypicalPeriods
-
-        for period_idx in segmented_df.index.get_level_values(0).unique():
-            period_data = segmented_df.loc[period_idx]
-            # Index levels: Segment Step, Segment Duration, Original Start Step
-            durations = tuple(
-                int(seg_dur) for _seg_step, seg_dur, _orig_start in period_data.index
-            )
-            result.append(durations)
-
-        return tuple(result)
-
-    @property
     def clustering(self) -> ClusteringResult:
         """Get clustering result for saving or applying to new data.
 
@@ -407,14 +323,39 @@ class AggregationResult:
         """
         from tsam.config import ClusteringResult
 
+        # Compute segment data if segmentation was used
+        segment_order: tuple[tuple[int, ...], ...] | None = None
+        segment_durations: tuple[tuple[int, ...], ...] | None = None
+
+        if self.n_segments is not None:
+            agg = self._aggregation
+            if hasattr(agg, "segmentedNormalizedTypicalPeriods"):
+                segmented_df = agg.segmentedNormalizedTypicalPeriods
+                segment_order_list = []
+                segment_durations_list = []
+
+                for period_idx in segmented_df.index.get_level_values(0).unique():
+                    period_data = segmented_df.loc[period_idx]
+                    # Index levels: Segment Step, Segment Duration, Original Start Step
+                    assignments = []
+                    durations = []
+                    for seg_step, seg_dur, _orig_start in period_data.index:
+                        assignments.extend([int(seg_step)] * int(seg_dur))
+                        durations.append(int(seg_dur))
+                    segment_order_list.append(tuple(assignments))
+                    segment_durations_list.append(tuple(durations))
+
+                segment_order = tuple(segment_order_list)
+                segment_durations = tuple(segment_durations_list)
+
         return ClusteringResult(
             period_hours=self._aggregation.hoursPerPeriod,
             cluster_order=tuple(self.cluster_assignments.tolist()),
             cluster_centers=tuple(self.cluster_center_indices.tolist())
             if self.cluster_center_indices is not None
             else None,
-            segment_order=self.segment_assignments,
-            segment_durations=self.segment_durations_tuple,
+            segment_order=segment_order,
+            segment_durations=segment_durations,
             segment_centers=None,  # Not currently captured by segmentation
         )
 

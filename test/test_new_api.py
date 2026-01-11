@@ -236,15 +236,15 @@ class TestAssignments:
 class TestSegmentTransfer:
     """Tests for predefined segment transfer."""
 
-    def test_segment_assignments_property(self, sample_data):
-        """Test that segment_assignments property works."""
+    def test_segment_order_in_clustering(self, sample_data):
+        """Test that segment_order is available via clustering property."""
         result = aggregate(
             sample_data,
             n_periods=8,
             segments=SegmentConfig(n_segments=6),
         )
 
-        seg_assignments = result.segment_assignments
+        seg_assignments = result.clustering.segment_order
 
         # Should not be None when segmentation is used
         assert seg_assignments is not None
@@ -252,19 +252,19 @@ class TestSegmentTransfer:
         # Should have one tuple per typical period
         assert len(seg_assignments) == result.n_periods
 
-        # Each inner tuple should sum to timesteps per period
+        # Each inner tuple should have length equal to timesteps per period
         for period_assignments in seg_assignments:
             assert len(period_assignments) == result.n_timesteps_per_period
 
-    def test_segment_durations_tuple_property(self, sample_data):
-        """Test that segment_durations_tuple property works."""
+    def test_segment_durations_in_clustering(self, sample_data):
+        """Test that segment_durations is available via clustering property."""
         result = aggregate(
             sample_data,
             n_periods=8,
             segments=SegmentConfig(n_segments=6),
         )
 
-        seg_durations = result.segment_durations_tuple
+        seg_durations = result.clustering.segment_durations
 
         # Should not be None when segmentation is used
         assert seg_durations is not None
@@ -302,8 +302,8 @@ class TestSegmentTransfer:
         """Test that segment properties return None without segmentation."""
         result = aggregate(sample_data, n_periods=8)
 
-        assert result.segment_assignments is None
-        assert result.segment_durations_tuple is None
+        assert result.clustering.segment_order is None
+        assert result.clustering.segment_durations is None
 
 
 class TestClusteringResult:
