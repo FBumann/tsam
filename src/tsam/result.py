@@ -294,11 +294,10 @@ class AggregationResult:
 
     @property
     def segment_assignments(self) -> tuple[tuple[int, ...], ...] | None:
-        """Get segment assignments per typical period for transfer.
+        """Get segment assignments per typical period.
 
         Returns the segment index for each timestep within each typical period.
-        This can be passed to another aggregation's SegmentConfig.predef_segment_order
-        to reproduce the same segmentation.
+        This is included in `result.clustering` for transfer to other data.
 
         Returns
         -------
@@ -313,15 +312,8 @@ class AggregationResult:
         >>> result.segment_assignments[0]
         (0, 0, 0, 0, 1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5)
 
-        >>> # Transfer to another aggregation
-        >>> result2 = tsam.aggregate(
-        ...     other_data,
-        ...     segments=SegmentConfig(
-        ...         n_segments=6,
-        ...         predef_segment_order=result.segment_assignments,
-        ...         predef_segment_durations=result.segment_durations_tuple,
-        ...     ),
-        ... )
+        >>> # Transfer to another dataset using ClusteringResult
+        >>> result2 = result.clustering.apply(other_data)
         """
         if self.n_segments is None:
             return None
@@ -346,11 +338,11 @@ class AggregationResult:
 
     @property
     def segment_durations_tuple(self) -> tuple[tuple[int, ...], ...] | None:
-        """Get segment durations per typical period for transfer.
+        """Get segment durations per typical period.
 
         Returns the duration (number of timesteps) for each segment within
-        each typical period. This can be passed to another aggregation's
-        SegmentConfig.predef_segment_durations to reproduce the same segmentation.
+        each typical period. This is included in `result.clustering` for
+        transfer to other data.
 
         Returns
         -------
