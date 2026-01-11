@@ -149,7 +149,7 @@ class TimeSeriesAggregation:
         :param resolution: Resolution of the time series in hours [h]. If timeSeries is a
             pandas.DataFrame() the resolution is derived from the datetime
             index. optional, default: delta_T in timeSeries
-        :type resolution: float
+        :type timestep_duration: float
 
         :param hoursPerPeriod: Value which defines the length of a cluster period. optional, default: 24
         :type hoursPerPeriod: integer
