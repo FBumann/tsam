@@ -542,15 +542,17 @@ class ClusteringResult:
         # Use stored resolution if not provided
         effective_resolution = resolution if resolution is not None else self.resolution
 
-        # Build cluster config with stored representation
-        cluster = ClusterConfig(representation=self.representation)
+        # Use stored config if available, otherwise build minimal one from transfer fields
+        cluster = self.cluster_config or ClusterConfig(
+            representation=self.representation
+        )
 
-        # Build segment config if we have segment data
+        # Use stored segment config if available, otherwise build from transfer fields
         segments: SegmentConfig | None = None
         n_segments: int | None = None
         if self.segment_order is not None and self.segment_durations is not None:
             n_segments = len(self.segment_durations[0])
-            segments = SegmentConfig(
+            segments = self.segment_config or SegmentConfig(
                 n_segments=n_segments,
                 representation=self.segment_representation or "mean",
             )
@@ -607,13 +609,11 @@ class ClusteringResult:
         clustering_result = _build_clustering_result(
             agg=agg,
             n_segments=n_segments,
-            cluster_config=self.cluster_config,
-            segment_config=self.segment_config,
+            cluster_config=cluster,
+            segment_config=segments,
             extremes_config=self.extremes_config,
             rescale=self.rescale,
             resolution=effective_resolution,
-            representation=self.representation,
-            segment_representation=self.segment_representation,
         )
 
         # Build result object
