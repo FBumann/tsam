@@ -56,7 +56,7 @@ class TestAggregateEquivalence:
         # Compare typical periods
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -126,7 +126,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -154,7 +154,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -182,7 +182,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -208,7 +208,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -236,7 +236,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -261,7 +261,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -288,7 +288,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -316,7 +316,7 @@ class TestAggregateEquivalence:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
@@ -447,7 +447,7 @@ class TestTuningEquivalence:
 
         # Each result should be a valid AggregationResult
         for r in result.all_results:
-            assert r.typical_periods is not None
+            assert r.cluster_representatives is not None
             assert r.accuracy is not None
 
 
@@ -472,7 +472,7 @@ class TestSubhourlyResolution:
             data,
             noTypicalPeriods=4,
             hoursPerPeriod=24,
-            timestep_duration=0.25,  # 15 minutes = 0.25 hours
+            resolution=0.25,  # 15 minutes = 0.25 hours
             clusterMethod="hierarchical",
         )
         old_result = old_agg.createTypicalPeriods()
@@ -487,7 +487,7 @@ class TestSubhourlyResolution:
 
         pd.testing.assert_frame_equal(
             old_result.reset_index(drop=True),
-            new_result.typical_periods.reset_index(drop=True),
+            new_result.cluster_representatives.reset_index(drop=True),
             check_names=False,
         )
 
