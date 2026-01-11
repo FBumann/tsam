@@ -508,9 +508,6 @@ class ClusteringResult:
             n_timesteps_per_period=agg.timeStepsPerPeriod,
             n_segments=n_segments,
             segment_durations=agg.segmentDurationDict if n_segments else None,
-            cluster_center_indices=np.array(agg.clusterCenterIndices)
-            if agg.clusterCenterIndices is not None
-            else None,
             accuracy=accuracy,
             clustering_duration=getattr(agg, "clusteringDuration", 0.0),
             _aggregation=agg,

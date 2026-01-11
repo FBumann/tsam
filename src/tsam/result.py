@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -90,10 +91,6 @@ class AggregationResult:
         Duration of each segment if segmentation was used.
         Keys are segment indices, values are durations in hours.
 
-    cluster_center_indices : np.ndarray
-        Indices of original periods used as cluster centers.
-        These are the "representative" periods for each cluster.
-
     accuracy : AccuracyMetrics
         Accuracy metrics comparing reconstructed to original data.
 
@@ -127,7 +124,6 @@ class AggregationResult:
     n_timesteps_per_period: int
     n_segments: int | None
     segment_durations: dict[int, float] | None
-    cluster_center_indices: np.ndarray | None
     accuracy: AccuracyMetrics
     clustering_duration: float
     _aggregation: TimeSeriesAggregation = field(repr=False, compare=False)
@@ -170,7 +166,6 @@ class AggregationResult:
         dict
             Dictionary containing all result data in serializable format.
         """
-        clustering = self.clustering
         return {
             "typical_periods": self.typical_periods.to_dict(),
             "cluster_assignments": self.cluster_assignments.tolist(),
@@ -179,11 +174,7 @@ class AggregationResult:
             "n_timesteps_per_period": self.n_timesteps_per_period,
             "n_segments": self.n_segments,
             "segment_durations": self.segment_durations,
-            "segment_assignments": clustering.segment_order,
-            "segment_durations_tuple": clustering.segment_durations,
-            "cluster_center_indices": self.cluster_center_indices.tolist()
-            if self.cluster_center_indices is not None
-            else None,
+            "clustering": self.clustering.to_dict(),
             "accuracy": {
                 "rmse": self.accuracy.rmse.to_dict(),
                 "mae": self.accuracy.mae.to_dict(),
@@ -293,12 +284,13 @@ class AggregationResult:
 
         return result_df
 
-    @property
+    @cached_property
     def clustering(self) -> ClusteringResult:
         """Get clustering result for saving or applying to new data.
 
         Returns a ClusteringResult containing all assignment information that
-        can be saved to disk and/or applied to different datasets.
+        can be saved to disk and/or applied to different datasets. This property
+        is cached for efficiency.
 
         Returns
         -------
@@ -323,12 +315,18 @@ class AggregationResult:
         """
         from tsam.config import ClusteringResult
 
+        agg = self._aggregation
+
+        # Get cluster centers from aggregation (convert to Python ints for JSON serialization)
+        cluster_centers: tuple[int, ...] | None = None
+        if agg.clusterCenterIndices is not None:
+            cluster_centers = tuple(int(x) for x in agg.clusterCenterIndices)
+
         # Compute segment data if segmentation was used
         segment_order: tuple[tuple[int, ...], ...] | None = None
         segment_durations: tuple[tuple[int, ...], ...] | None = None
 
         if self.n_segments is not None:
-            agg = self._aggregation
             if hasattr(agg, "segmentedNormalizedTypicalPeriods"):
                 segmented_df = agg.segmentedNormalizedTypicalPeriods
                 segment_order_list = []
@@ -349,11 +347,9 @@ class AggregationResult:
                 segment_durations = tuple(segment_durations_list)
 
         return ClusteringResult(
-            period_hours=self._aggregation.hoursPerPeriod,
+            period_hours=agg.hoursPerPeriod,
             cluster_order=tuple(self.cluster_assignments.tolist()),
-            cluster_centers=tuple(self.cluster_center_indices.tolist())
-            if self.cluster_center_indices is not None
-            else None,
+            cluster_centers=cluster_centers,
             segment_order=segment_order,
             segment_durations=segment_durations,
             segment_centers=None,  # Not currently captured by segmentation
