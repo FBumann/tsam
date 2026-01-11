@@ -322,25 +322,26 @@ class TestSegmentTransfer:
         assert result.segment_durations_tuple is None
 
 
-class TestPredef:
-    """Tests for the predefined parameter and PredefinedConfig."""
+class TestClusteringResult:
+    """Tests for ClusteringResult and apply()."""
 
-    def test_predef_property(self, sample_data):
-        """Test that predefined property returns PredefinedConfig."""
-        from tsam import PredefinedConfig
+    def test_clustering_property(self, sample_data):
+        """Test that clustering property returns ClusteringResult."""
+        from tsam import ClusteringResult
 
         result = aggregate(sample_data, n_periods=8)
-        predefined = result.predefined
+        clustering = result.clustering
 
-        assert isinstance(predefined, PredefinedConfig)
-        assert len(predefined.cluster_order) == len(result.cluster_assignments)
+        assert isinstance(clustering, ClusteringResult)
+        assert len(clustering.cluster_order) == len(result.cluster_assignments)
+        assert clustering.n_periods == result.n_periods
 
-    def test_predef_transfer(self, sample_data):
-        """Test transferring with predefined parameter."""
+    def test_clustering_apply(self, sample_data):
+        """Test applying clustering to same data."""
         result1 = aggregate(sample_data, n_periods=8)
 
-        # Transfer using predefined
-        result2 = aggregate(sample_data, n_periods=8, predefined=result1.predefined)
+        # Apply clustering to same data
+        result2 = result1.clustering.apply(sample_data)
 
         # Results should match
         pd.testing.assert_frame_equal(
@@ -348,16 +349,16 @@ class TestPredef:
             result2.typical_periods,
         )
 
-    def test_predef_with_segments(self, sample_data):
-        """Test predefined transfer with segmentation."""
+    def test_clustering_apply_with_segments(self, sample_data):
+        """Test clustering apply with segmentation."""
         result1 = aggregate(
             sample_data,
             n_periods=8,
             segments=SegmentConfig(n_segments=6),
         )
 
-        # Transfer using predefined
-        result2 = aggregate(sample_data, n_periods=8, predefined=result1.predefined)
+        # Apply clustering (includes segment info)
+        result2 = result1.clustering.apply(sample_data)
 
         # Should automatically apply segmentation
         assert result2.n_segments == 6
@@ -366,31 +367,36 @@ class TestPredef:
             result2.typical_periods,
         )
 
-    def test_predef_from_dict(self, sample_data):
-        """Test predefined transfer via dict (for JSON serialization)."""
-        from tsam import PredefinedConfig
+    def test_clustering_from_dict(self, sample_data):
+        """Test clustering transfer via dict (for JSON serialization)."""
+        from tsam import ClusteringResult
 
         result1 = aggregate(sample_data, n_periods=8)
 
         # Convert to dict and back (simulates JSON save/load)
-        predef_dict = result1.predefined.to_dict()
-        predefined = PredefinedConfig.from_dict(predef_dict)
+        clustering_dict = result1.clustering.to_dict()
+        clustering = ClusteringResult.from_dict(clustering_dict)
 
-        result2 = aggregate(sample_data, n_periods=8, predefined=predefined)
+        result2 = clustering.apply(sample_data)
 
         pd.testing.assert_frame_equal(
             result1.typical_periods,
             result2.typical_periods,
         )
 
-    def test_predef_dict_directly(self, sample_data):
-        """Test passing dict directly to predefined parameter."""
+    def test_clustering_json_roundtrip(self, sample_data, tmp_path):
+        """Test saving and loading clustering to/from JSON file."""
+        from tsam import ClusteringResult
+
         result1 = aggregate(sample_data, n_periods=8)
 
-        # Pass dict directly (API accepts both)
-        result2 = aggregate(
-            sample_data, n_periods=8, predefined=result1.predefined.to_dict()
-        )
+        # Save to file
+        json_path = tmp_path / "clustering.json"
+        result1.clustering.to_json(str(json_path))
+
+        # Load and apply
+        clustering = ClusteringResult.from_json(str(json_path))
+        result2 = clustering.apply(sample_data)
 
         pd.testing.assert_frame_equal(
             result1.typical_periods,

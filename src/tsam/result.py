@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from tsam.config import PredefinedConfig
+    from tsam.config import ClusteringResult
     from tsam.plot import ResultPlotAccessor
     from tsam.timeseriesaggregation import TimeSeriesAggregation
 
@@ -386,38 +386,35 @@ class AggregationResult:
         return tuple(result)
 
     @property
-    def predefined(self) -> PredefinedConfig:
-        """Get predefined state for transferring to another aggregation.
+    def clustering(self) -> ClusteringResult:
+        """Get clustering result for saving or applying to new data.
 
-        Returns a PredefinedConfig containing all assignment information needed
-        to reproduce this aggregation's clustering and segmentation on new data.
+        Returns a ClusteringResult containing all assignment information that
+        can be saved to disk and/or applied to different datasets.
 
         Returns
         -------
-        PredefinedConfig
-            Config object with cluster_order, cluster_centers (optional),
+        ClusteringResult
+            Object with cluster_order, cluster_centers (optional),
             segment_order (if segmentation), segment_durations (if segmentation).
 
         Examples
         --------
-        >>> result = tsam.aggregate(df, n_periods=8, segments=SegmentConfig(n_segments=6))
+        >>> result = tsam.aggregate(df, n_periods=8)
 
-        >>> # Apply directly to new data
-        >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=result.predefined)
+        >>> # Apply to new data
+        >>> result2 = result.clustering.apply(new_data)
 
         >>> # Save to file
-        >>> import json
-        >>> with open("predefined.json", "w") as f:
-        ...     json.dump(result.predefined.to_dict(), f)
+        >>> result.clustering.to_json("clustering.json")
 
         >>> # Load and apply
-        >>> with open("predefined.json") as f:
-        ...     predefined = PredefinedConfig.from_dict(json.load(f))
-        >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=predefined)
+        >>> clustering = ClusteringResult.from_json("clustering.json")
+        >>> result2 = clustering.apply(new_data)
         """
-        from tsam.config import PredefinedConfig
+        from tsam.config import ClusteringResult
 
-        return PredefinedConfig(
+        return ClusteringResult(
             cluster_order=tuple(self.cluster_assignments.tolist()),
             cluster_centers=tuple(self.cluster_center_indices.tolist())
             if self.cluster_center_indices is not None

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
+import numpy as np
 import pandas as pd
+
+if TYPE_CHECKING:
+    from tsam.result import AggregationResult
 
 # Type aliases for clarity
 ClusterMethod = Literal[
@@ -209,11 +213,15 @@ class SegmentConfig:
 
 
 @dataclass(frozen=True)
-class PredefinedConfig:
-    """Predefined assignments for transferring results between aggregations.
+class ClusteringResult:
+    """Clustering assignments that can be saved/loaded and applied to new data.
 
-    Use this to apply clustering and segmentation results from one aggregation
-    to another dataset. Get this from `result.predefined` or create manually.
+    This class bundles all clustering and segmentation assignments from an
+    aggregation, enabling:
+    - Simple IO via to_json()/from_json()
+    - Applying the same clustering to different datasets via apply()
+
+    Get this from `result.clustering` after running an aggregation.
 
     Parameters
     ----------
@@ -223,33 +231,30 @@ class PredefinedConfig:
 
     cluster_centers : tuple[int, ...], optional
         Indices of original periods used as cluster centers.
-        If not provided, centers will be recalculated.
+        If not provided, centers will be recalculated when applying.
 
     segment_order : tuple[tuple[int, ...], ...], optional
         Segment assignments per timestep, per typical period.
-        Only needed if transferring segmentation results.
+        Only present if segmentation was used.
 
     segment_durations : tuple[tuple[int, ...], ...], optional
         Duration (in timesteps) per segment, per typical period.
-        Required if segment_order is provided.
+        Required if segment_order is present.
 
     Examples
     --------
-    >>> # From a previous result
-    >>> predefined = result.predefined
+    >>> # Get clustering from a result
+    >>> result = tsam.aggregate(df_wind, n_periods=8)
+    >>> clustering = result.clustering
 
     >>> # Save to file
-    >>> import json
-    >>> with open("predefined.json", "w") as f:
-    ...     json.dump(predefined.to_dict(), f)
+    >>> clustering.to_json("clustering.json")
 
     >>> # Load from file
-    >>> with open("predefined.json") as f:
-    ...     data = json.load(f)
-    >>> predefined = PredefinedConfig.from_dict(data)
+    >>> clustering = ClusteringResult.from_json("clustering.json")
 
     >>> # Apply to new data
-    >>> result2 = tsam.aggregate(new_data, n_periods=8, predefined=predefined)
+    >>> result2 = clustering.apply(df_all)
     """
 
     cluster_order: tuple[int, ...]
@@ -267,16 +272,31 @@ class PredefinedConfig:
                 "segment_order must be provided when segment_durations is specified"
             )
 
+    @property
+    def n_periods(self) -> int:
+        """Number of typical periods (clusters)."""
+        return len(set(self.cluster_order))
+
+    @property
+    def n_original_periods(self) -> int:
+        """Number of original periods in the source data."""
+        return len(self.cluster_order)
+
+    @property
+    def n_segments(self) -> int | None:
+        """Number of segments per period, or None if no segmentation."""
+        if self.segment_durations is None:
+            return None
+        return len(self.segment_durations[0])
+
     def __repr__(self) -> str:
-        n_original_periods = len(self.cluster_order)
-        n_typical_periods = len(set(self.cluster_order))
         has_centers = self.cluster_centers is not None
         has_segments = self.segment_order is not None
 
         lines = [
-            "PredefinedConfig(",
-            f"  n_original_periods={n_original_periods},",
-            f"  n_typical_periods={n_typical_periods},",
+            "ClusteringResult(",
+            f"  n_original_periods={self.n_original_periods},",
+            f"  n_periods={self.n_periods},",
             f"  has_cluster_centers={has_centers},",
         ]
 
@@ -293,23 +313,19 @@ class PredefinedConfig:
         """Convert to a readable DataFrame.
 
         Returns a DataFrame with one row per original period showing
-        cluster assignments. If segments are defined, includes segment
-        information for each typical period.
+        cluster assignments.
 
         Returns
         -------
         pd.DataFrame
             DataFrame with cluster_order indexed by original period.
-            If segments are present, includes additional columns.
         """
-        # Base DataFrame with cluster assignments
         df = pd.DataFrame(
             {"cluster": list(self.cluster_order)},
             index=pd.RangeIndex(len(self.cluster_order), name="original_period"),
         )
 
         if self.cluster_centers is not None:
-            # Add a column showing which periods are cluster centers
             center_set = set(self.cluster_centers)
             df["is_center"] = [i in center_set for i in range(len(self.cluster_order))]
 
@@ -351,9 +367,9 @@ class PredefinedConfig:
         return result
 
     @classmethod
-    def from_dict(cls, data: dict) -> PredefinedConfig:
+    def from_dict(cls, data: dict) -> ClusteringResult:
         """Create from dictionary (e.g., loaded from JSON)."""
-        kwargs = {"cluster_order": tuple(data["cluster_order"])}
+        kwargs: dict[str, Any] = {"cluster_order": tuple(data["cluster_order"])}
         if "cluster_centers" in data:
             kwargs["cluster_centers"] = tuple(data["cluster_centers"])
         if "segment_order" in data:
@@ -363,6 +379,194 @@ class PredefinedConfig:
                 tuple(s) for s in data["segment_durations"]
             )
         return cls(**kwargs)
+
+    def to_json(self, path: str) -> None:
+        """Save clustering result to a JSON file.
+
+        Parameters
+        ----------
+        path : str
+            File path to save to.
+
+        Examples
+        --------
+        >>> result.clustering.to_json("clustering.json")
+        """
+        import json
+
+        with open(path, "w") as f:
+            json.dump(self.to_dict(), f, indent=2)
+
+    @classmethod
+    def from_json(cls, path: str) -> ClusteringResult:
+        """Load clustering result from a JSON file.
+
+        Parameters
+        ----------
+        path : str
+            File path to load from.
+
+        Returns
+        -------
+        ClusteringResult
+            Loaded clustering result.
+
+        Examples
+        --------
+        >>> clustering = ClusteringResult.from_json("clustering.json")
+        >>> result = clustering.apply(new_data)
+        """
+        import json
+
+        with open(path) as f:
+            return cls.from_dict(json.load(f))
+
+    def apply(
+        self,
+        data: pd.DataFrame,
+        *,
+        period_hours: int = 24,
+        resolution: float | None = None,
+        cluster: ClusterConfig | None = None,
+        rescale: bool = True,
+        round_decimals: int | None = None,
+        numerical_tolerance: float = 1e-13,
+    ) -> AggregationResult:
+        """Apply this clustering to new data.
+
+        Uses the stored cluster assignments and (optionally) segment assignments
+        to aggregate a different dataset with the same clustering structure.
+
+        Parameters
+        ----------
+        data : pd.DataFrame
+            Input time series data with a datetime index.
+            Must have the same number of periods as the original data.
+
+        period_hours : int, default 24
+            Length of each period in hours.
+
+        resolution : float, optional
+            Time resolution of input data in hours.
+            If not provided, inferred from the datetime index.
+
+        cluster : ClusterConfig, optional
+            Clustering configuration for representation method, weights, etc.
+            The clustering assignments themselves come from this ClusteringResult.
+
+        rescale : bool, default True
+            Rescale typical periods to match the original data's mean.
+
+        round_decimals : int, optional
+            Round output values to this many decimal places.
+
+        numerical_tolerance : float, default 1e-13
+            Tolerance for numerical precision issues.
+
+        Returns
+        -------
+        AggregationResult
+            Aggregation result using this clustering.
+
+        Examples
+        --------
+        >>> # Cluster on wind data, apply to full dataset
+        >>> result_wind = tsam.aggregate(df_wind, n_periods=8)
+        >>> result_all = result_wind.clustering.apply(df_all)
+
+        >>> # Load saved clustering and apply
+        >>> clustering = ClusteringResult.from_json("clustering.json")
+        >>> result = clustering.apply(df)
+        """
+        # Import here to avoid circular imports
+        from tsam.api import _build_old_params
+        from tsam.result import AccuracyMetrics, AggregationResult
+        from tsam.timeseriesaggregation import TimeSeriesAggregation
+
+        # Apply defaults
+        if cluster is None:
+            cluster = ClusterConfig()
+
+        # Override cluster config with our predefined values
+        cluster_kwargs = {
+            "method": cluster.method,
+            "representation": cluster.representation,
+            "weights": cluster.weights,
+            "normalize_means": cluster.normalize_means,
+            "use_duration_curves": cluster.use_duration_curves,
+            "include_period_sums": cluster.include_period_sums,
+            "solver": cluster.solver,
+            "predef_cluster_order": self.cluster_order,
+        }
+        if self.cluster_centers is not None:
+            cluster_kwargs["predef_cluster_centers"] = self.cluster_centers
+        cluster = ClusterConfig(**cluster_kwargs)  # type: ignore[arg-type]
+
+        # Build segment config if we have segment data
+        segments: SegmentConfig | None = None
+        if self.segment_order is not None and self.segment_durations is not None:
+            segments = SegmentConfig(
+                n_segments=len(self.segment_durations[0]),
+                predef_segment_order=self.segment_order,
+                predef_segment_durations=self.segment_durations,
+            )
+
+        # Build old API parameters
+        old_params = _build_old_params(
+            data=data,
+            n_periods=self.n_periods,
+            period_hours=period_hours,
+            resolution=resolution,
+            cluster=cluster,
+            segments=segments,
+            extremes=None,
+            rescale=rescale,
+            round_decimals=round_decimals,
+            numerical_tolerance=numerical_tolerance,
+        )
+
+        # Run aggregation using old implementation
+        agg = TimeSeriesAggregation(**old_params)
+        typical_periods = agg.createTypicalPeriods()
+
+        # Build accuracy metrics
+        accuracy_df = agg.accuracyIndicators()
+
+        # Build rescale deviations DataFrame
+        rescale_deviations_dict = getattr(agg, "_rescaleDeviations", {})
+        if rescale_deviations_dict:
+            rescale_deviations = pd.DataFrame.from_dict(
+                rescale_deviations_dict, orient="index"
+            )
+            rescale_deviations.index.name = "column"
+        else:
+            rescale_deviations = pd.DataFrame(
+                columns=["deviation_pct", "converged", "iterations"]
+            )
+
+        accuracy = AccuracyMetrics(
+            rmse=accuracy_df["RMSE"],
+            mae=accuracy_df["MAE"],
+            rmse_duration=accuracy_df["RMSE_duration"],
+            rescale_deviations=rescale_deviations,
+        )
+
+        # Build result object
+        return AggregationResult(
+            typical_periods=typical_periods,
+            cluster_assignments=np.array(agg.clusterOrder),
+            cluster_weights=dict(agg.clusterPeriodNoOccur),
+            n_periods=len(agg.clusterPeriodIdx),
+            n_timesteps_per_period=agg.timeStepsPerPeriod,
+            n_segments=segments.n_segments if segments else None,
+            segment_durations=agg.segmentDurationDict if segments else None,
+            cluster_center_indices=np.array(agg.clusterCenterIndices)
+            if agg.clusterCenterIndices is not None
+            else None,
+            accuracy=accuracy,
+            clustering_duration=getattr(agg, "clusteringDuration", 0.0),
+            _aggregation=agg,
+        )
 
 
 @dataclass(frozen=True)
