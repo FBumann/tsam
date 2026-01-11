@@ -116,6 +116,36 @@ class ClusterConfig:
         }
         return defaults.get(self.method, "mean")
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result: dict[str, Any] = {"method": self.method}
+        if self.representation is not None:
+            result["representation"] = self.representation
+        if self.weights is not None:
+            result["weights"] = self.weights
+        if self.normalize_means:
+            result["normalize_means"] = self.normalize_means
+        if self.use_duration_curves:
+            result["use_duration_curves"] = self.use_duration_curves
+        if self.include_period_sums:
+            result["include_period_sums"] = self.include_period_sums
+        if self.solver != "highs":
+            result["solver"] = self.solver
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ClusterConfig:
+        """Create from dictionary (e.g., loaded from JSON)."""
+        return cls(
+            method=data.get("method", "hierarchical"),
+            representation=data.get("representation"),
+            weights=data.get("weights"),
+            normalize_means=data.get("normalize_means", False),
+            use_duration_curves=data.get("use_duration_curves", False),
+            include_period_sums=data.get("include_period_sums", False),
+            solver=data.get("solver", "highs"),
+        )
+
 
 @dataclass(frozen=True)
 class SegmentConfig:
@@ -148,6 +178,21 @@ class SegmentConfig:
         # Note: Upper bound validation (n_segments <= timesteps_per_period)
         # is performed in api.aggregate() when period_hours is known.
 
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result: dict[str, Any] = {"n_segments": self.n_segments}
+        if self.representation != "mean":
+            result["representation"] = self.representation
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> SegmentConfig:
+        """Create from dictionary (e.g., loaded from JSON)."""
+        return cls(
+            n_segments=data["n_segments"],
+            representation=data.get("representation", "mean"),
+        )
+
 
 @dataclass(frozen=True)
 class ClusteringResult:
@@ -157,6 +202,7 @@ class ClusteringResult:
     aggregation, enabling:
     - Simple IO via to_json()/from_json()
     - Applying the same clustering to different datasets via apply()
+    - Preserving the parameters used to create the clustering
 
     Get this from `result.clustering` after running an aggregation.
 
@@ -185,6 +231,18 @@ class ClusteringResult:
         Indices of timesteps used as segment centers, per typical period.
         Required for fully deterministic segment replication.
 
+    cluster_config : ClusterConfig, optional
+        Clustering configuration used to create this result.
+        Stored for reference; not used when applying.
+
+    segment_config : SegmentConfig, optional
+        Segmentation configuration used to create this result.
+        Stored for reference; not used when applying.
+
+    rescale : bool, optional
+        Whether rescaling was enabled when creating this result.
+        Default True when applying if not specified.
+
     Examples
     --------
     >>> # Get clustering from a result
@@ -207,6 +265,10 @@ class ClusteringResult:
     segment_order: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
     segment_centers: tuple[tuple[int, ...], ...] | None = None
+    # Parameters used to create this clustering (for reference)
+    cluster_config: ClusterConfig | None = None
+    segment_config: SegmentConfig | None = None
+    rescale: bool | None = None
 
     def __post_init__(self) -> None:
         if self.segment_order is not None and self.segment_durations is None:
@@ -322,6 +384,13 @@ class ClusteringResult:
             result["segment_durations"] = [list(s) for s in self.segment_durations]
         if self.segment_centers is not None:
             result["segment_centers"] = [list(s) for s in self.segment_centers]
+        # Parameters used to create this clustering
+        if self.cluster_config is not None:
+            result["cluster_config"] = self.cluster_config.to_dict()
+        if self.segment_config is not None:
+            result["segment_config"] = self.segment_config.to_dict()
+        if self.rescale is not None:
+            result["rescale"] = self.rescale
         return result
 
     @classmethod
@@ -341,6 +410,13 @@ class ClusteringResult:
             )
         if "segment_centers" in data:
             kwargs["segment_centers"] = tuple(tuple(s) for s in data["segment_centers"])
+        # Parameters used to create this clustering
+        if "cluster_config" in data:
+            kwargs["cluster_config"] = ClusterConfig.from_dict(data["cluster_config"])
+        if "segment_config" in data:
+            kwargs["segment_config"] = SegmentConfig.from_dict(data["segment_config"])
+        if "rescale" in data:
+            kwargs["rescale"] = data["rescale"]
         return cls(**kwargs)
 
     def to_json(self, path: str) -> None:
@@ -500,6 +576,7 @@ class ClusteringResult:
         )
 
         # Build result object
+        # Use stored configs if available, otherwise use what was passed/defaulted
         return AggregationResult(
             typical_periods=typical_periods,
             cluster_assignments=np.array(agg.clusterOrder),
@@ -511,6 +588,9 @@ class ClusteringResult:
             accuracy=accuracy,
             clustering_duration=getattr(agg, "clusteringDuration", 0.0),
             _aggregation=agg,
+            _cluster_config=self.cluster_config or cluster,
+            _segment_config=self.segment_config or segments,
+            _rescale=self.rescale if self.rescale is not None else rescale,
         )
 
 

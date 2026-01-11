@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from tsam.config import ClusteringResult
+    from tsam.config import ClusterConfig, ClusteringResult, SegmentConfig
     from tsam.plot import ResultPlotAccessor
     from tsam.timeseriesaggregation import TimeSeriesAggregation
 
@@ -127,6 +127,14 @@ class AggregationResult:
     accuracy: AccuracyMetrics
     clustering_duration: float
     _aggregation: TimeSeriesAggregation = field(repr=False, compare=False)
+    # Parameters used (for ClusteringResult)
+    _cluster_config: ClusterConfig | None = field(
+        default=None, repr=False, compare=False
+    )
+    _segment_config: SegmentConfig | None = field(
+        default=None, repr=False, compare=False
+    )
+    _rescale: bool = field(default=True, repr=False, compare=False)
 
     def __repr__(self) -> str:
         seg_info = f", n_segments={self.n_segments}" if self.n_segments else ""
@@ -353,6 +361,9 @@ class AggregationResult:
             segment_order=segment_order,
             segment_durations=segment_durations,
             segment_centers=None,  # Not currently captured by segmentation
+            cluster_config=self._cluster_config,
+            segment_config=self._segment_config,
+            rescale=self._rescale,
         )
 
     @property

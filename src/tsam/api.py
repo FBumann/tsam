@@ -256,6 +256,9 @@ def aggregate(
         accuracy=accuracy,
         clustering_duration=getattr(agg, "clusteringDuration", 0.0),
         _aggregation=agg,
+        _cluster_config=cluster,
+        _segment_config=segments,
+        _rescale=rescale,
     )
 
 
