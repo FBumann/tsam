@@ -205,7 +205,7 @@ class ClusteringResult:
 
     Transfer Fields (used by apply())
     ----------------------------------
-    period_duration : int
+    period_duration : float
         Length of each period in hours (e.g., 24 for daily periods).
 
     cluster_assignments : tuple[int, ...]
@@ -222,7 +222,7 @@ class ClusteringResult:
 
     segment_durations : tuple[tuple[int, ...], ...], optional
         Duration (in timesteps) per segment, per typical period.
-        Required if segment_order is present.
+        Required if segment_assignments is present.
 
     segment_centers : tuple[tuple[int, ...], ...], optional
         Indices of timesteps used as segment centers, per typical period.
@@ -237,7 +237,7 @@ class ClusteringResult:
     segment_representation : str, optional
         How to compute segment values. Only used if segmentation is present.
 
-    resolution : float, optional
+    timestep_duration : float, optional
         Time resolution of input data in hours. If not provided, inferred.
 
     Reference Fields (for documentation, not used by apply())
@@ -254,7 +254,7 @@ class ClusteringResult:
     Examples
     --------
     >>> # Get clustering from a result
-    >>> result = tsam.aggregate(df_wind, n_periods=8)
+    >>> result = tsam.aggregate(df_wind, n_clusters=8)
     >>> clustering = result.clustering
 
     >>> # Save to file
@@ -268,7 +268,7 @@ class ClusteringResult:
     """
 
     # === Transfer fields (used by apply()) ===
-    period_hours: int
+    period_duration: float
     cluster_assignments: tuple[int, ...]
     cluster_centers: tuple[int, ...] | None = None
     segment_assignments: tuple[tuple[int, ...], ...] | None = None
@@ -277,7 +277,7 @@ class ClusteringResult:
     rescale: bool = True
     representation: RepresentationMethod = "medoid"
     segment_representation: RepresentationMethod | None = None
-    resolution: float | None = None
+    timestep_duration: float | None = None
 
     # === Reference fields (for documentation, not used by apply()) ===
     cluster_config: ClusterConfig | None = None
@@ -321,7 +321,7 @@ class ClusteringResult:
 
         lines = [
             "ClusteringResult(",
-            f"  period_hours={self.period_hours},",
+            f"  period_duration={self.period_duration},",
             f"  n_original_periods={self.n_original_periods},",
             f"  n_clusters={self.n_clusters},",
             f"  has_cluster_centers={has_centers},",
@@ -349,7 +349,7 @@ class ClusteringResult:
         Returns
         -------
         pd.DataFrame
-            DataFrame with cluster_order indexed by original period.
+            DataFrame with cluster_assignments indexed by original period.
         """
         df = pd.DataFrame(
             {"cluster": list(self.cluster_assignments)},
@@ -392,7 +392,7 @@ class ClusteringResult:
         """Convert to dictionary for JSON serialization."""
         # Transfer fields (always included)
         result: dict[str, Any] = {
-            "period_hours": self.period_hours,
+            "period_duration": self.period_duration,
             "cluster_assignments": list(self.cluster_assignments),
             "rescale": self.rescale,
             "representation": self.representation,
@@ -407,8 +407,8 @@ class ClusteringResult:
             result["segment_centers"] = [list(s) for s in self.segment_centers]
         if self.segment_representation is not None:
             result["segment_representation"] = self.segment_representation
-        if self.resolution is not None:
-            result["resolution"] = self.resolution
+        if self.timestep_duration is not None:
+            result["timestep_duration"] = self.timestep_duration
         # Reference fields (optional, for documentation)
         if self.cluster_config is not None:
             result["cluster_config"] = self.cluster_config.to_dict()
@@ -423,7 +423,7 @@ class ClusteringResult:
         """Create from dictionary (e.g., loaded from JSON)."""
         # Transfer fields
         kwargs: dict[str, Any] = {
-            "period_hours": data["period_hours"],
+            "period_duration": data["period_duration"],
             "cluster_assignments": tuple(data["cluster_assignments"]),
             "rescale": data.get("rescale", True),
             "representation": data.get("representation", "medoid"),
@@ -442,8 +442,8 @@ class ClusteringResult:
             kwargs["segment_centers"] = tuple(tuple(s) for s in data["segment_centers"])
         if "segment_representation" in data:
             kwargs["segment_representation"] = data["segment_representation"]
-        if "resolution" in data:
-            kwargs["resolution"] = data["resolution"]
+        if "timestep_duration" in data:
+            kwargs["timestep_duration"] = data["timestep_duration"]
         # Reference fields
         if "cluster_config" in data:
             kwargs["cluster_config"] = ClusterConfig.from_dict(data["cluster_config"])
@@ -498,7 +498,7 @@ class ClusteringResult:
         self,
         data: pd.DataFrame,
         *,
-        resolution: float | None = None,
+        timestep_duration: float | None = None,
         round_decimals: int | None = None,
         numerical_tolerance: float = 1e-13,
     ) -> AggregationResult:
@@ -513,9 +513,9 @@ class ClusteringResult:
             Input time series data with a datetime index.
             Must have the same number of periods as the original data.
 
-        resolution : float, optional
+        timestep_duration : float, optional
             Time resolution of input data in hours.
-            If not provided, uses stored resolution or infers from data index.
+            If not provided, uses stored timestep_duration or infers from data index.
 
         round_decimals : int, optional
             Round output values to this many decimal places.
@@ -531,7 +531,7 @@ class ClusteringResult:
         Examples
         --------
         >>> # Cluster on wind data, apply to full dataset
-        >>> result_wind = tsam.aggregate(df_wind, n_periods=8)
+        >>> result_wind = tsam.aggregate(df_wind, n_clusters=8)
         >>> result_all = result_wind.clustering.apply(df_all)
 
         >>> # Load saved clustering and apply
@@ -543,8 +543,12 @@ class ClusteringResult:
         from tsam.result import AccuracyMetrics, AggregationResult
         from tsam.timeseriesaggregation import TimeSeriesAggregation
 
-        # Use stored resolution if not provided
-        effective_resolution = resolution if resolution is not None else self.resolution
+        # Use stored timestep_duration if not provided
+        effective_timestep_duration = (
+            timestep_duration
+            if timestep_duration is not None
+            else self.timestep_duration
+        )
 
         # Use stored config if available, otherwise build minimal one from transfer fields
         cluster = self.cluster_config or ClusterConfig(
@@ -565,8 +569,8 @@ class ClusteringResult:
         old_params = _build_old_params(
             data=data,
             n_clusters=self.n_clusters,
-            period_duration=self.period_hours,
-            timestep_duration=effective_resolution,
+            period_duration=self.period_duration,
+            timestep_duration=effective_timestep_duration,
             cluster=cluster,
             segments=segments,
             extremes=None,
@@ -617,7 +621,7 @@ class ClusteringResult:
             segment_config=segments,
             extremes_config=self.extremes_config,
             preserve_column_means=self.rescale,
-            resolution=effective_resolution,
+            timestep_duration=effective_timestep_duration,
         )
 
         # Build result object

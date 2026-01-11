@@ -540,7 +540,7 @@ def find_pareto_front(
         cluster = ClusterConfig()
 
     # Parse duration parameters to hours
-    period_hours = _parse_duration_hours(period_duration, "period_duration")
+    period_duration = _parse_duration_hours(period_duration, "period_duration")
     timestep_duration = (
         _parse_duration_hours(timestep_duration, "timestep_duration")
         if timestep_duration is not None
@@ -551,7 +551,7 @@ def find_pareto_front(
         raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     n_timesteps = len(data)
-    timesteps_per_period = int(period_hours / timestep_duration)
+    timesteps_per_period = int(period_duration / timestep_duration)
 
     max_periods = n_timesteps // timesteps_per_period
     max_segments = timesteps_per_period
@@ -566,7 +566,7 @@ def find_pareto_front(
         return _find_pareto_front_targeted(
             data=data,
             timesteps=timesteps,
-            period_duration=period_hours,
+            period_duration=period_duration,
             timestep_duration=timestep_duration,
             max_periods=max_periods,
             max_segments=max_segments,
@@ -578,7 +578,7 @@ def find_pareto_front(
     # Steepest descent exploration
     return _find_pareto_front_steepest(
         data=data,
-        period_duration=period_hours,
+        period_duration=period_duration,
         timestep_duration=timestep_duration,
         max_periods=max_periods,
         max_segments=max_segments,

@@ -182,16 +182,16 @@ def aggregate(
         raise ValueError(f"n_clusters must be a positive integer, got {n_clusters}")
 
     # Parse duration parameters to hours
-    period_hours = _parse_duration_hours(period_duration, "period_duration")
-    if period_hours <= 0:
+    period_duration = _parse_duration_hours(period_duration, "period_duration")
+    if period_duration <= 0:
         raise ValueError(f"period_duration must be positive, got {period_duration}")
 
-    resolution = (
+    timestep_duration = (
         _parse_duration_hours(timestep_duration, "timestep_duration")
         if timestep_duration is not None
         else None
     )
-    if resolution is not None and resolution <= 0:
+    if timestep_duration is not None and timestep_duration <= 0:
         raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     # Apply defaults
@@ -201,18 +201,18 @@ def aggregate(
     # Validate segments against data
     if segments is not None:
         # Calculate timesteps per period
-        if resolution is not None:
-            timesteps_per_period = int(period_hours / resolution)
+        if timestep_duration is not None:
+            timesteps_per_period = int(period_duration / timestep_duration)
         else:
             # Infer resolution from data index
             if isinstance(data.index, pd.DatetimeIndex) and len(data.index) > 1:
                 inferred_resolution = (
                     data.index[1] - data.index[0]
                 ).total_seconds() / 3600
-                timesteps_per_period = int(period_hours / inferred_resolution)
+                timesteps_per_period = int(period_duration / inferred_resolution)
             else:
                 # Fall back to assuming hourly resolution
-                timesteps_per_period = int(period_hours)
+                timesteps_per_period = int(period_duration)
 
         if segments.n_segments > timesteps_per_period:
             raise ValueError(
@@ -242,8 +242,8 @@ def aggregate(
     old_params = _build_old_params(
         data=data,
         n_clusters=n_clusters,
-        period_duration=period_hours,
-        timestep_duration=resolution,
+        period_duration=period_duration,
+        timestep_duration=timestep_duration,
         cluster=cluster,
         segments=segments,
         extremes=extremes,
@@ -291,7 +291,7 @@ def aggregate(
         segment_config=segments,
         extremes_config=extremes,
         preserve_column_means=preserve_column_means,
-        resolution=resolution,
+        timestep_duration=timestep_duration,
     )
 
     # Compute segment_durations as tuple of tuples
@@ -328,7 +328,7 @@ def _build_clustering_result(
     segment_config: SegmentConfig | None,
     extremes_config: ExtremeConfig | None,
     preserve_column_means: bool,
-    resolution: float | None,
+    timestep_duration: float | None,
 ) -> ClusteringResult:
     """Build ClusteringResult from a TimeSeriesAggregation object."""
     # Get cluster centers (convert to Python ints for JSON serialization)
@@ -377,7 +377,7 @@ def _build_clustering_result(
     segment_representation = segment_config.representation if segment_config else None
 
     return ClusteringResult(
-        period_hours=agg.hoursPerPeriod,
+        period_duration=agg.hoursPerPeriod,
         cluster_assignments=tuple(int(x) for x in agg.clusterOrder),
         cluster_centers=cluster_centers,
         segment_assignments=segment_assignments,
@@ -386,7 +386,7 @@ def _build_clustering_result(
         rescale=preserve_column_means,
         representation=representation,
         segment_representation=segment_representation,
-        resolution=resolution,
+        timestep_duration=timestep_duration,
         cluster_config=cluster_config,
         segment_config=segment_config,
         extremes_config=extremes_config,

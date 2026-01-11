@@ -236,15 +236,15 @@ class TestAssignments:
 class TestSegmentTransfer:
     """Tests for predefined segment transfer."""
 
-    def test_segment_order_in_clustering(self, sample_data):
-        """Test that segment_order is available via clustering property."""
+    def test_segment_assignments_in_clustering(self, sample_data):
+        """Test that segment_assignments is available via clustering property."""
         result = aggregate(
             sample_data,
             n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
-        seg_assignments = result.clustering.segment_order
+        seg_assignments = result.clustering.segment_assignments
 
         # Should not be None when segmentation is used
         assert seg_assignments is not None
@@ -302,7 +302,7 @@ class TestSegmentTransfer:
         """Test that segment properties return None without segmentation."""
         result = aggregate(sample_data, n_clusters=8)
 
-        assert result.clustering.segment_order is None
+        assert result.clustering.segment_assignments is None
         assert result.clustering.segment_durations is None
 
 
@@ -313,16 +313,16 @@ class TestClusteringResult:
         """Test that clustering property returns ClusteringResult."""
         from tsam import ClusteringResult
 
-        result = aggregate(sample_data, n_periods=8)
+        result = aggregate(sample_data, n_clusters=8)
         clustering = result.clustering
 
         assert isinstance(clustering, ClusteringResult)
-        assert len(clustering.cluster_order) == len(result.cluster_assignments)
-        assert clustering.n_periods == result.n_periods
+        assert len(clustering.cluster_assignments) == len(result.cluster_assignments)
+        assert clustering.n_clusters == result.n_clusters
 
     def test_clustering_apply(self, sample_data):
         """Test applying clustering to same data."""
-        result1 = aggregate(sample_data, n_periods=8)
+        result1 = aggregate(sample_data, n_clusters=8)
 
         # Apply clustering to same data
         result2 = result1.clustering.apply(sample_data)
@@ -372,7 +372,7 @@ class TestClusteringResult:
         """Test saving and loading clustering to/from JSON file."""
         from tsam import ClusteringResult
 
-        result1 = aggregate(sample_data, n_periods=8)
+        result1 = aggregate(sample_data, n_clusters=8)
 
         # Save to file
         json_path = tmp_path / "clustering.json"
@@ -383,31 +383,31 @@ class TestClusteringResult:
         result2 = clustering.apply(sample_data)
 
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
-    def test_clustering_includes_period_hours(self, sample_data):
-        """Test that clustering includes period_hours."""
-        result = aggregate(sample_data, n_periods=8, period_hours=24)
+    def test_clustering_includes_period_duration(self, sample_data):
+        """Test that clustering includes period_duration."""
+        result = aggregate(sample_data, n_clusters=8, period_duration=24)
         clustering = result.clustering
 
-        assert clustering.period_hours == 24
-        assert clustering.n_periods == 8
+        assert clustering.period_duration == 24
+        assert clustering.n_clusters == 8
         assert clustering.n_original_periods == len(result.cluster_assignments)
 
-    def test_clustering_period_hours_preserved_in_json(self, sample_data, tmp_path):
-        """Test that period_hours is preserved through JSON serialization."""
+    def test_clustering_period_duration_preserved_in_json(self, sample_data, tmp_path):
+        """Test that period_duration is preserved through JSON serialization."""
         from tsam import ClusteringResult
 
-        result = aggregate(sample_data, n_periods=8, period_hours=24)
+        result = aggregate(sample_data, n_clusters=8, period_duration=24)
 
         # Save and load
         json_path = tmp_path / "clustering.json"
         result.clustering.to_json(str(json_path))
         clustering = ClusteringResult.from_json(str(json_path))
 
-        assert clustering.period_hours == 24
+        assert clustering.period_duration == 24
 
 
 class TestDeterministicPreservation:
@@ -419,10 +419,10 @@ class TestDeterministicPreservation:
 
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             cluster=ClusterConfig(method="kmeans", representation="mean"),
             segments=SegmentConfig(n_segments=6, representation="medoid"),
-            rescale=False,
+            preserve_column_means=False,
         )
 
         # Save and load
@@ -434,9 +434,9 @@ class TestDeterministicPreservation:
         assert clustering.rescale is False
         assert clustering.representation == "mean"
         assert clustering.segment_representation == "medoid"
-        assert clustering.period_hours == 24
-        assert len(clustering.cluster_order) == len(result.cluster_assignments)
-        assert clustering.segment_order is not None
+        assert clustering.period_duration == 24
+        assert len(clustering.cluster_assignments) == len(result.cluster_assignments)
+        assert clustering.segment_assignments is not None
         assert clustering.segment_durations is not None
 
     def test_representation_method_deterministic(self, sample_data, tmp_path):
@@ -446,7 +446,7 @@ class TestDeterministicPreservation:
         # Test with mean representation
         result_mean = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             cluster=ClusterConfig(representation="mean"),
         )
 
@@ -458,15 +458,15 @@ class TestDeterministicPreservation:
 
         # Results should be identical
         pd.testing.assert_frame_equal(
-            result_mean.typical_periods,
-            result_reapplied.typical_periods,
+            result_mean.cluster_representatives,
+            result_reapplied.cluster_representatives,
         )
 
     def test_apply_to_different_data(self, sample_data):
         """Test applying clustering from subset to full data."""
         # Cluster on single column
         wind_only = sample_data[["Wind"]]
-        result_wind = aggregate(wind_only, n_periods=8)
+        result_wind = aggregate(wind_only, n_clusters=8)
 
         # Apply to full data
         result_full = result_wind.clustering.apply(sample_data)
@@ -477,7 +477,9 @@ class TestDeterministicPreservation:
         )
 
         # Full result should have all columns
-        assert list(result_full.typical_periods.columns) == list(sample_data.columns)
+        assert list(result_full.cluster_representatives.columns) == list(
+            sample_data.columns
+        )
 
     def test_segmentation_preserved_through_json(self, sample_data, tmp_path):
         """Test that segmentation is fully preserved through JSON roundtrip."""
@@ -485,7 +487,7 @@ class TestDeterministicPreservation:
 
         result1 = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6),
         )
 
@@ -508,11 +510,13 @@ class TestDeterministicPreservation:
         )
 
     def test_rescale_setting_preserved(self, sample_data, tmp_path):
-        """Test that rescale=False produces different results than rescale=True."""
+        """Test that preserve_column_means=False produces different results than preserve_column_means=True."""
         from tsam import ClusteringResult
 
-        # With rescale=False
-        result_no_rescale = aggregate(sample_data, n_periods=8, rescale=False)
+        # With preserve_column_means=False
+        result_no_rescale = aggregate(
+            sample_data, n_clusters=8, preserve_column_means=False
+        )
 
         # Save, load, apply
         json_path = tmp_path / "clustering_no_rescale.json"
@@ -520,11 +524,11 @@ class TestDeterministicPreservation:
         clustering = ClusteringResult.from_json(str(json_path))
         result_reapplied = clustering.apply(sample_data)
 
-        # Should preserve rescale=False behavior
+        # Should preserve preserve_column_means=False behavior
         assert clustering.rescale is False
         pd.testing.assert_frame_equal(
-            result_no_rescale.typical_periods,
-            result_reapplied.typical_periods,
+            result_no_rescale.cluster_representatives,
+            result_reapplied.cluster_representatives,
         )
 
 
@@ -553,7 +557,7 @@ class TestSegmentCenters:
         """Test that segment centers are captured with medoid representation."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6, representation="medoid"),
         )
 
@@ -563,7 +567,7 @@ class TestSegmentCenters:
         assert segment_centers is not None
 
         # Should have one tuple per typical period
-        assert len(segment_centers) == result.n_periods
+        assert len(segment_centers) == result.n_clusters
 
         # Each inner tuple should have n_segments elements
         for period_centers in segment_centers:
@@ -578,7 +582,7 @@ class TestSegmentCenters:
         """Test that segment centers are None with mean representation."""
         result = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6, representation="mean"),
         )
 
@@ -591,7 +595,7 @@ class TestSegmentCenters:
 
         result1 = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6, representation="medoid"),
         )
 
@@ -607,8 +611,8 @@ class TestSegmentCenters:
         # Apply and verify results are identical
         result2 = clustering.apply(sample_data)
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
     def test_segment_centers_deterministic_transfer(self, sample_data):
@@ -616,7 +620,7 @@ class TestSegmentCenters:
         # First aggregation with medoid segments
         result1 = aggregate(
             sample_data,
-            n_periods=8,
+            n_clusters=8,
             segments=SegmentConfig(n_segments=6, representation="medoid"),
         )
 
@@ -625,8 +629,8 @@ class TestSegmentCenters:
 
         # Results should be identical
         pd.testing.assert_frame_equal(
-            result1.typical_periods,
-            result2.typical_periods,
+            result1.cluster_representatives,
+            result2.cluster_representatives,
         )
 
 

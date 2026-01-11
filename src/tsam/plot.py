@@ -79,8 +79,8 @@ def heatmap(
     if column is None:
         column = data.columns[0]
 
-    period_hours = int(_parse_duration_hours(period_duration, "period_duration"))
-    stacked, _ = unstackToPeriods(data[[column]].copy(), period_hours)
+    period_duration = int(_parse_duration_hours(period_duration, "period_duration"))
+    stacked, _ = unstackToPeriods(data[[column]].copy(), period_duration)
 
     fig = px.imshow(
         stacked[column].values.T,
@@ -144,7 +144,7 @@ def heatmaps(
     if columns is None:
         columns = list(data.columns)
 
-    period_hours = int(_parse_duration_hours(period_duration, "period_duration"))
+    period_duration = int(_parse_duration_hours(period_duration, "period_duration"))
     n_cols = len(columns)
     ref = reference_data if reference_data is not None else data
 
@@ -157,7 +157,7 @@ def heatmaps(
     )
 
     for i, col in enumerate(columns, 1):
-        stacked, _ = unstackToPeriods(data[[col]].copy(), period_hours)
+        stacked, _ = unstackToPeriods(data[[col]].copy(), period_duration)
 
         fig.add_trace(
             go.Heatmap(
@@ -659,7 +659,7 @@ class ResultPlotAccessor:
 
         Examples
         --------
-        >>> result = tsam.aggregate(df, n_periods=8)
+        >>> result = tsam.aggregate(df, n_clusters=8)
         >>> result.plot.cluster_assignments()
         """
         assignments = self._result.cluster_assignments
