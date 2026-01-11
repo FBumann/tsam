@@ -395,8 +395,9 @@ class AggregationResult:
         Returns
         -------
         ClusteringResult
-            Object with cluster_order, cluster_centers (optional),
-            segment_order (if segmentation), segment_durations (if segmentation).
+            Object with period_hours, cluster_order, cluster_centers (optional),
+            segment_order (if segmentation), segment_durations (if segmentation),
+            segment_centers (if available).
 
         Examples
         --------
@@ -415,12 +416,14 @@ class AggregationResult:
         from tsam.config import ClusteringResult
 
         return ClusteringResult(
+            period_hours=self._aggregation.hoursPerPeriod,
             cluster_order=tuple(self.cluster_assignments.tolist()),
             cluster_centers=tuple(self.cluster_center_indices.tolist())
             if self.cluster_center_indices is not None
             else None,
             segment_order=self.segment_assignments,
             segment_durations=self.segment_durations_tuple,
+            segment_centers=None,  # Not currently captured by segmentation
         )
 
     @property

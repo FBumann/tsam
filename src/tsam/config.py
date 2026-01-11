@@ -225,6 +225,9 @@ class ClusteringResult:
 
     Parameters
     ----------
+    period_hours : int
+        Length of each period in hours (e.g., 24 for daily periods).
+
     cluster_order : tuple[int, ...]
         Cluster assignments for each original period.
         Length equals the number of original periods in the data.
@@ -240,6 +243,10 @@ class ClusteringResult:
     segment_durations : tuple[tuple[int, ...], ...], optional
         Duration (in timesteps) per segment, per typical period.
         Required if segment_order is present.
+
+    segment_centers : tuple[tuple[int, ...], ...], optional
+        Indices of timesteps used as segment centers, per typical period.
+        Required for fully deterministic segment replication.
 
     Examples
     --------
@@ -257,10 +264,12 @@ class ClusteringResult:
     >>> result2 = clustering.apply(df_all)
     """
 
+    period_hours: int
     cluster_order: tuple[int, ...]
     cluster_centers: tuple[int, ...] | None = None
     segment_order: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
+    segment_centers: tuple[tuple[int, ...], ...] | None = None
 
     def __post_init__(self) -> None:
         if self.segment_order is not None and self.segment_durations is None:
@@ -270,6 +279,10 @@ class ClusteringResult:
         if self.segment_durations is not None and self.segment_order is None:
             raise ValueError(
                 "segment_order must be provided when segment_durations is specified"
+            )
+        if self.segment_centers is not None and self.segment_order is None:
+            raise ValueError(
+                "segment_order must be provided when segment_centers is specified"
             )
 
     @property
@@ -295,6 +308,7 @@ class ClusteringResult:
 
         lines = [
             "ClusteringResult(",
+            f"  period_hours={self.period_hours},",
             f"  n_original_periods={self.n_original_periods},",
             f"  n_periods={self.n_periods},",
             f"  has_cluster_centers={has_centers},",
@@ -303,8 +317,10 @@ class ClusteringResult:
         if has_segments:
             n_segments = len(self.segment_durations[0]) if self.segment_durations else 0
             n_timesteps = len(self.segment_order[0]) if self.segment_order else 0
+            has_seg_centers = self.segment_centers is not None
             lines.append(f"  n_segments={n_segments},")
             lines.append(f"  n_timesteps_per_period={n_timesteps},")
+            lines.append(f"  has_segment_centers={has_seg_centers},")
 
         lines.append(")")
         return "\n".join(lines)
@@ -357,19 +373,27 @@ class ClusteringResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
-        result: dict[str, Any] = {"cluster_order": list(self.cluster_order)}
+        result: dict[str, Any] = {
+            "period_hours": self.period_hours,
+            "cluster_order": list(self.cluster_order),
+        }
         if self.cluster_centers is not None:
             result["cluster_centers"] = list(self.cluster_centers)
         if self.segment_order is not None:
             result["segment_order"] = [list(s) for s in self.segment_order]
         if self.segment_durations is not None:
             result["segment_durations"] = [list(s) for s in self.segment_durations]
+        if self.segment_centers is not None:
+            result["segment_centers"] = [list(s) for s in self.segment_centers]
         return result
 
     @classmethod
     def from_dict(cls, data: dict) -> ClusteringResult:
         """Create from dictionary (e.g., loaded from JSON)."""
-        kwargs: dict[str, Any] = {"cluster_order": tuple(data["cluster_order"])}
+        kwargs: dict[str, Any] = {
+            "period_hours": data["period_hours"],
+            "cluster_order": tuple(data["cluster_order"]),
+        }
         if "cluster_centers" in data:
             kwargs["cluster_centers"] = tuple(data["cluster_centers"])
         if "segment_order" in data:
@@ -378,6 +402,8 @@ class ClusteringResult:
             kwargs["segment_durations"] = tuple(
                 tuple(s) for s in data["segment_durations"]
             )
+        if "segment_centers" in data:
+            kwargs["segment_centers"] = tuple(tuple(s) for s in data["segment_centers"])
         return cls(**kwargs)
 
     def to_json(self, path: str) -> None:
@@ -425,7 +451,6 @@ class ClusteringResult:
         self,
         data: pd.DataFrame,
         *,
-        period_hours: int = 24,
         resolution: float | None = None,
         cluster: ClusterConfig | None = None,
         rescale: bool = True,
@@ -442,9 +467,6 @@ class ClusteringResult:
         data : pd.DataFrame
             Input time series data with a datetime index.
             Must have the same number of periods as the original data.
-
-        period_hours : int, default 24
-            Length of each period in hours.
 
         resolution : float, optional
             Time resolution of input data in hours.
@@ -509,13 +531,14 @@ class ClusteringResult:
                 n_segments=len(self.segment_durations[0]),
                 predef_segment_order=self.segment_order,
                 predef_segment_durations=self.segment_durations,
+                predef_segment_centers=self.segment_centers,
             )
 
         # Build old API parameters
         old_params = _build_old_params(
             data=data,
             n_periods=self.n_periods,
-            period_hours=period_hours,
+            period_hours=self.period_hours,
             resolution=resolution,
             cluster=cluster,
             segments=segments,

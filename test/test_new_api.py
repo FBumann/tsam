@@ -403,6 +403,28 @@ class TestClusteringResult:
             result2.typical_periods,
         )
 
+    def test_clustering_includes_period_hours(self, sample_data):
+        """Test that clustering includes period_hours."""
+        result = aggregate(sample_data, n_periods=8, period_hours=24)
+        clustering = result.clustering
+
+        assert clustering.period_hours == 24
+        assert clustering.n_periods == 8
+        assert clustering.n_original_periods == len(result.cluster_assignments)
+
+    def test_clustering_period_hours_preserved_in_json(self, sample_data, tmp_path):
+        """Test that period_hours is preserved through JSON serialization."""
+        from tsam import ClusteringResult
+
+        result = aggregate(sample_data, n_periods=8, period_hours=24)
+
+        # Save and load
+        json_path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+
+        assert clustering.period_hours == 24
+
 
 class TestSegmentConfigValidation:
     """Tests for SegmentConfig validation."""
