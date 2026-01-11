@@ -90,16 +90,6 @@ class ClusterConfig:
     solver : str, default "highs"
         MILP solver for kmedoids method.
         Options: "highs" (default, open source), "cbc", "gurobi", "cplex"
-
-    predef_cluster_order : array-like, optional
-        Predefined cluster assignments for each period.
-        Use this to apply cluster assignments from one aggregation to another.
-        Example: Use wind-only clustering order for multi-variable aggregation.
-
-    predef_cluster_centers : array-like, optional
-        Predefined cluster center indices.
-        When combined with predef_cluster_order, uses the exact same
-        representative periods instead of recalculating them.
     """
 
     method: ClusterMethod = "hierarchical"
@@ -109,8 +99,6 @@ class ClusterConfig:
     use_duration_curves: bool = False
     include_period_sums: bool = False
     solver: Solver = "highs"
-    predef_cluster_order: tuple[int, ...] | None = None
-    predef_cluster_centers: tuple[int, ...] | None = None
 
     def get_representation(self) -> RepresentationMethod:
         """Get the representation method, using default if not specified."""
@@ -149,67 +137,16 @@ class SegmentConfig:
         - "mean": Average value of timesteps in segment
         - "medoid": Actual timestep closest to segment mean
         - "distribution": Preserve distribution within segment
-
-    predef_segment_order : tuple[tuple[int, ...], ...], optional
-        Predefined segment assignments per timestep, per typical period.
-        Use this to transfer segment assignments from one aggregation to another.
-        Outer tuple has one entry per typical period (length = n_periods).
-        Inner tuple has one entry per timestep (length = n_timesteps_per_period),
-        containing the segment index (0 to n_segments-1) for that timestep.
-
-    predef_segment_durations : tuple[tuple[int, ...], ...], optional
-        Predefined durations (in timesteps) per segment, per typical period.
-        Required when predef_segment_order is specified.
-        Outer tuple has one entry per typical period.
-        Inner tuple has one entry per segment, containing the number of
-        timesteps in that segment.
-
-    predef_segment_centers : tuple[tuple[int, ...], ...], optional
-        Predefined center indices per segment, per typical period.
-        When combined with predef_segment_order, uses the exact same
-        segment representatives instead of recalculating them.
-        Outer tuple has one entry per typical period.
-        Inner tuple has one entry per segment, containing the original
-        timestep index (within the period) used as the segment center.
     """
 
     n_segments: int
     representation: RepresentationMethod = "mean"
-    predef_segment_order: tuple[tuple[int, ...], ...] | None = None
-    predef_segment_durations: tuple[tuple[int, ...], ...] | None = None
-    predef_segment_centers: tuple[tuple[int, ...], ...] | None = None
 
     def __post_init__(self) -> None:
         if self.n_segments < 1:
             raise ValueError(f"n_segments must be positive, got {self.n_segments}")
         # Note: Upper bound validation (n_segments <= timesteps_per_period)
         # is performed in api.aggregate() when period_hours is known.
-
-        # Validate predefined segment parameters
-        if self.predef_segment_order is not None:
-            if self.predef_segment_durations is None:
-                raise ValueError(
-                    "predef_segment_durations must be provided when "
-                    "predef_segment_order is specified"
-                )
-            if len(self.predef_segment_order) != len(self.predef_segment_durations):
-                raise ValueError(
-                    f"predef_segment_order ({len(self.predef_segment_order)} periods) "
-                    f"and predef_segment_durations ({len(self.predef_segment_durations)} periods) "
-                    "must have the same number of periods"
-                )
-        elif self.predef_segment_durations is not None:
-            raise ValueError(
-                "predef_segment_order must be provided when "
-                "predef_segment_durations is specified"
-            )
-
-        if self.predef_segment_centers is not None:
-            if self.predef_segment_order is None:
-                raise ValueError(
-                    "predef_segment_order must be provided when "
-                    "predef_segment_centers is specified"
-                )
 
 
 @dataclass(frozen=True)
@@ -509,32 +446,14 @@ class ClusteringResult:
         if cluster is None:
             cluster = ClusterConfig()
 
-        # Override cluster config with our predefined values
-        cluster_kwargs = {
-            "method": cluster.method,
-            "representation": cluster.representation,
-            "weights": cluster.weights,
-            "normalize_means": cluster.normalize_means,
-            "use_duration_curves": cluster.use_duration_curves,
-            "include_period_sums": cluster.include_period_sums,
-            "solver": cluster.solver,
-            "predef_cluster_order": self.cluster_order,
-        }
-        if self.cluster_centers is not None:
-            cluster_kwargs["predef_cluster_centers"] = self.cluster_centers
-        cluster = ClusterConfig(**cluster_kwargs)  # type: ignore[arg-type]
-
         # Build segment config if we have segment data
         segments: SegmentConfig | None = None
+        n_segments: int | None = None
         if self.segment_order is not None and self.segment_durations is not None:
-            segments = SegmentConfig(
-                n_segments=len(self.segment_durations[0]),
-                predef_segment_order=self.segment_order,
-                predef_segment_durations=self.segment_durations,
-                predef_segment_centers=self.segment_centers,
-            )
+            n_segments = len(self.segment_durations[0])
+            segments = SegmentConfig(n_segments=n_segments)
 
-        # Build old API parameters
+        # Build old API parameters, passing predefined values directly
         old_params = _build_old_params(
             data=data,
             n_periods=self.n_periods,
@@ -546,6 +465,12 @@ class ClusteringResult:
             rescale=rescale,
             round_decimals=round_decimals,
             numerical_tolerance=numerical_tolerance,
+            # Predefined values from this ClusteringResult
+            predef_cluster_order=self.cluster_order,
+            predef_cluster_centers=self.cluster_centers,
+            predef_segment_order=self.segment_order,
+            predef_segment_durations=self.segment_durations,
+            predef_segment_centers=self.segment_centers,
         )
 
         # Run aggregation using old implementation
@@ -581,8 +506,8 @@ class ClusteringResult:
             cluster_weights=dict(agg.clusterPeriodNoOccur),
             n_periods=len(agg.clusterPeriodIdx),
             n_timesteps_per_period=agg.timeStepsPerPeriod,
-            n_segments=segments.n_segments if segments else None,
-            segment_durations=agg.segmentDurationDict if segments else None,
+            n_segments=n_segments,
+            segment_durations=agg.segmentDurationDict if n_segments else None,
             cluster_center_indices=np.array(agg.clusterCenterIndices)
             if agg.clusterCenterIndices is not None
             else None,

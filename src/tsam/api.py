@@ -273,6 +273,13 @@ def _build_old_params(
     rescale: bool,
     round_decimals: int | None,
     numerical_tolerance: float,
+    *,
+    # Predefined parameters (used internally by ClusteringResult.apply())
+    predef_cluster_order: tuple[int, ...] | None = None,
+    predef_cluster_centers: tuple[int, ...] | None = None,
+    predef_segment_order: tuple[tuple[int, ...], ...] | None = None,
+    predef_segment_durations: tuple[tuple[int, ...], ...] | None = None,
+    predef_segment_centers: tuple[tuple[int, ...], ...] | None = None,
 ) -> dict:
     """Build parameters for the old TimeSeriesAggregation API."""
     params: dict = {
@@ -314,11 +321,12 @@ def _build_old_params(
     if cluster.weights is not None:
         params["weightDict"] = cluster.weights
 
-    if cluster.predef_cluster_order is not None:
-        params["predefClusterOrder"] = list(cluster.predef_cluster_order)
+    # Predefined cluster parameters (from ClusteringResult)
+    if predef_cluster_order is not None:
+        params["predefClusterOrder"] = list(predef_cluster_order)
 
-    if cluster.predef_cluster_centers is not None:
-        params["predefClusterCenterIndices"] = list(cluster.predef_cluster_centers)
+    if predef_cluster_centers is not None:
+        params["predefClusterCenterIndices"] = list(predef_cluster_centers)
 
     # Segmentation config
     if segments is not None:
@@ -328,19 +336,15 @@ def _build_old_params(
             segments.representation, "meanRepresentation"
         )
 
-        # Predefined segment parameters
-        if segments.predef_segment_order is not None:
-            params["predefSegmentOrder"] = [
-                list(s) for s in segments.predef_segment_order
-            ]
-        if segments.predef_segment_durations is not None:
+        # Predefined segment parameters (from ClusteringResult)
+        if predef_segment_order is not None:
+            params["predefSegmentOrder"] = [list(s) for s in predef_segment_order]
+        if predef_segment_durations is not None:
             params["predefSegmentDurations"] = [
-                list(s) for s in segments.predef_segment_durations
+                list(s) for s in predef_segment_durations
             ]
-        if segments.predef_segment_centers is not None:
-            params["predefSegmentCenters"] = [
-                list(s) for s in segments.predef_segment_centers
-            ]
+        if predef_segment_centers is not None:
+            params["predefSegmentCenters"] = [list(s) for s in predef_segment_centers]
     else:
         params["segmentation"] = False
 

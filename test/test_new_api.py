@@ -289,24 +289,8 @@ class TestSegmentTransfer:
             segments=SegmentConfig(n_segments=6),
         )
 
-        # Get segment assignments for transfer
-        seg_assignments = result1.segment_assignments
-        seg_durations = result1.segment_durations_tuple
-
-        # Second aggregation with predefined segments and clusters
-        result2 = aggregate(
-            sample_data,
-            n_periods=8,
-            cluster=ClusterConfig(
-                predef_cluster_order=tuple(result1.cluster_assignments),
-                predef_cluster_centers=tuple(result1.cluster_center_indices),
-            ),
-            segments=SegmentConfig(
-                n_segments=6,
-                predef_segment_order=seg_assignments,
-                predef_segment_durations=seg_durations,
-            ),
-        )
+        # Transfer using ClusteringResult.apply()
+        result2 = result1.clustering.apply(sample_data)
 
         # Results should match
         pd.testing.assert_frame_equal(
@@ -429,36 +413,16 @@ class TestClusteringResult:
 class TestSegmentConfigValidation:
     """Tests for SegmentConfig validation."""
 
-    def test_predef_segment_order_requires_durations(self):
-        """Test that predef_segment_order requires predef_segment_durations."""
-        with pytest.raises(ValueError, match="predef_segment_durations"):
-            SegmentConfig(
-                n_segments=6,
-                predef_segment_order=((0, 0, 1, 1, 2, 2),),
-            )
+    def test_n_segments_must_be_positive(self):
+        """Test that n_segments must be positive."""
+        with pytest.raises(ValueError, match="n_segments must be positive"):
+            SegmentConfig(n_segments=0)
 
-    def test_predef_segment_durations_requires_order(self):
-        """Test that predef_segment_durations requires predef_segment_order."""
-        with pytest.raises(ValueError, match="predef_segment_order"):
-            SegmentConfig(
-                n_segments=6,
-                predef_segment_durations=((2, 2, 2),),
-            )
+        with pytest.raises(ValueError, match="n_segments must be positive"):
+            SegmentConfig(n_segments=-1)
 
-    def test_predef_segment_centers_requires_order(self):
-        """Test that predef_segment_centers requires predef_segment_order."""
-        with pytest.raises(ValueError, match="predef_segment_order"):
-            SegmentConfig(
-                n_segments=6,
-                predef_segment_centers=((0, 2, 4),),
-            )
-
-    def test_valid_predef_segment_config(self):
-        """Test that valid predefined segment config doesn't raise."""
-        config = SegmentConfig(
-            n_segments=3,
-            predef_segment_order=((0, 0, 1, 1, 2, 2),),
-            predef_segment_durations=((2, 2, 2),),
-        )
-        assert config.predef_segment_order is not None
-        assert config.predef_segment_durations is not None
+    def test_valid_segment_config(self):
+        """Test that valid segment config doesn't raise."""
+        config = SegmentConfig(n_segments=6)
+        assert config.n_segments == 6
+        assert config.representation == "mean"
