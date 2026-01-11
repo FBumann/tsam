@@ -48,8 +48,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
         )
 
@@ -91,8 +91,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="kmeans"),
         )
 
@@ -119,8 +119,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical", representation="medoid"),
         )
 
@@ -147,8 +147,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical", weights=weights),
         )
 
@@ -174,8 +174,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
             segments=SegmentConfig(n_segments=12),
         )
@@ -201,8 +201,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical", representation="duration"),
         )
 
@@ -228,8 +228,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
             extremes=ExtremeConfig(method="append", max_value=["Load"]),
         )
@@ -254,8 +254,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="contiguous"),
         )
 
@@ -280,8 +280,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
             rescale=False,
         )
@@ -307,8 +307,8 @@ class TestAggregateEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(
                 method="hierarchical", representation="distribution_minmax"
             ),
@@ -350,11 +350,11 @@ class TestTuningEquivalence:
             (8760, 8, 0.01),
         ]
 
-        for n_timesteps, n_periods, data_reduction in test_cases:
+        for n_timesteps, n_clusters, data_reduction in test_cases:
             old_result = old_tune.getNoSegmentsForDataReduction(
-                n_timesteps, n_periods, data_reduction
+                n_timesteps, n_clusters, data_reduction
             )
-            new_result = segments_for_reduction(n_timesteps, n_periods, data_reduction)
+            new_result = segments_for_reduction(n_timesteps, n_clusters, data_reduction)
             assert old_result == new_result
 
     def test_find_optimal_combination(self, sample_data):
@@ -384,7 +384,7 @@ class TestTuningEquivalence:
         new_result = find_optimal_combination(
             data,
             data_reduction=data_reduction,
-            period_hours=24,
+            period_duration=24,
             cluster=ClusterConfig(
                 method="hierarchical",
                 representation="duration",
@@ -393,7 +393,7 @@ class TestTuningEquivalence:
         )
 
         # Results should match
-        assert new_result.optimal_n_periods == old_periods
+        assert new_result.optimal_n_clusters == old_periods
         assert new_result.optimal_n_segments == old_segments
         np.testing.assert_allclose(new_result.optimal_rmse, old_rmse, rtol=1e-5)
 
@@ -417,7 +417,7 @@ class TestTuningEquivalence:
         # New API
         new_results = find_pareto_front(
             small_data,
-            period_hours=12,
+            period_duration=12,
             cluster=ClusterConfig(method="hierarchical", representation="mean"),
             show_progress=False,
         )
@@ -437,7 +437,7 @@ class TestTuningEquivalence:
         result = find_optimal_combination(
             small_data,
             data_reduction=0.1,
-            period_hours=12,
+            period_duration=12,
             show_progress=False,
             save_all_results=True,
         )
@@ -472,7 +472,7 @@ class TestSubhourlyResolution:
             data,
             noTypicalPeriods=4,
             hoursPerPeriod=24,
-            resolution=0.25,  # 15 minutes = 0.25 hours
+            timestep_duration=0.25,  # 15 minutes = 0.25 hours
             clusterMethod="hierarchical",
         )
         old_result = old_agg.createTypicalPeriods()
@@ -480,8 +480,8 @@ class TestSubhourlyResolution:
         # New API (should infer resolution)
         new_result = aggregate(
             data,
-            n_periods=4,
-            period_hours=24,
+            n_clusters=4,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
         )
 
@@ -507,11 +507,11 @@ class TestSubhourlyResolution:
         result = find_optimal_combination(
             data,
             data_reduction=0.1,
-            period_hours=24,
+            period_duration=24,
             show_progress=False,
         )
 
-        assert result.optimal_n_periods > 0
+        assert result.optimal_n_clusters > 0
         assert result.optimal_n_segments > 0
         # With 96 timesteps per period, we can have up to 96 segments
         assert result.optimal_n_segments <= 96
@@ -535,8 +535,8 @@ class TestReconstructionEquivalence:
         # New API
         new_result = aggregate(
             sample_data,
-            n_periods=8,
-            period_hours=24,
+            n_clusters=8,
+            period_duration=24,
             cluster=ClusterConfig(method="hierarchical"),
         )
         new_reconstructed = new_result.reconstruct()
