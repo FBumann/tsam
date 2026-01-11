@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
-    from tsam.config import ClusterConfig, ClusteringResult, SegmentConfig
+    from tsam.config import ClusteringResult
     from tsam.plot import ResultPlotAccessor
     from tsam.timeseriesaggregation import TimeSeriesAggregation
 
@@ -126,15 +125,8 @@ class AggregationResult:
     segment_durations: dict[int, float] | None
     accuracy: AccuracyMetrics
     clustering_duration: float
+    clustering: ClusteringResult
     _aggregation: TimeSeriesAggregation = field(repr=False, compare=False)
-    # Parameters used (for ClusteringResult)
-    _cluster_config: ClusterConfig | None = field(
-        default=None, repr=False, compare=False
-    )
-    _segment_config: SegmentConfig | None = field(
-        default=None, repr=False, compare=False
-    )
-    _rescale: bool = field(default=True, repr=False, compare=False)
 
     def __repr__(self) -> str:
         seg_info = f", n_segments={self.n_segments}" if self.n_segments else ""
@@ -291,80 +283,6 @@ class AggregationResult:
             result_df["segment_idx"] = segment_indices
 
         return result_df
-
-    @cached_property
-    def clustering(self) -> ClusteringResult:
-        """Get clustering result for saving or applying to new data.
-
-        Returns a ClusteringResult containing all assignment information that
-        can be saved to disk and/or applied to different datasets. This property
-        is cached for efficiency.
-
-        Returns
-        -------
-        ClusteringResult
-            Object with period_hours, cluster_order, cluster_centers (optional),
-            segment_order (if segmentation), segment_durations (if segmentation),
-            segment_centers (if available).
-
-        Examples
-        --------
-        >>> result = tsam.aggregate(df, n_periods=8)
-
-        >>> # Apply to new data
-        >>> result2 = result.clustering.apply(new_data)
-
-        >>> # Save to file
-        >>> result.clustering.to_json("clustering.json")
-
-        >>> # Load and apply
-        >>> clustering = ClusteringResult.from_json("clustering.json")
-        >>> result2 = clustering.apply(new_data)
-        """
-        from tsam.config import ClusteringResult
-
-        agg = self._aggregation
-
-        # Get cluster centers from aggregation (convert to Python ints for JSON serialization)
-        cluster_centers: tuple[int, ...] | None = None
-        if agg.clusterCenterIndices is not None:
-            cluster_centers = tuple(int(x) for x in agg.clusterCenterIndices)
-
-        # Compute segment data if segmentation was used
-        segment_order: tuple[tuple[int, ...], ...] | None = None
-        segment_durations: tuple[tuple[int, ...], ...] | None = None
-
-        if self.n_segments is not None:
-            if hasattr(agg, "segmentedNormalizedTypicalPeriods"):
-                segmented_df = agg.segmentedNormalizedTypicalPeriods
-                segment_order_list = []
-                segment_durations_list = []
-
-                for period_idx in segmented_df.index.get_level_values(0).unique():
-                    period_data = segmented_df.loc[period_idx]
-                    # Index levels: Segment Step, Segment Duration, Original Start Step
-                    assignments = []
-                    durations = []
-                    for seg_step, seg_dur, _orig_start in period_data.index:
-                        assignments.extend([int(seg_step)] * int(seg_dur))
-                        durations.append(int(seg_dur))
-                    segment_order_list.append(tuple(assignments))
-                    segment_durations_list.append(tuple(durations))
-
-                segment_order = tuple(segment_order_list)
-                segment_durations = tuple(segment_durations_list)
-
-        return ClusteringResult(
-            period_hours=agg.hoursPerPeriod,
-            cluster_order=tuple(self.cluster_assignments.tolist()),
-            cluster_centers=cluster_centers,
-            segment_order=segment_order,
-            segment_durations=segment_durations,
-            segment_centers=None,  # Not currently captured by segmentation
-            cluster_config=self._cluster_config,
-            segment_config=self._segment_config,
-            rescale=self._rescale,
-        )
 
     @property
     def plot(self) -> ResultPlotAccessor:

@@ -10,6 +10,7 @@ from tsam.config import (
     METHOD_MAPPING,
     REPRESENTATION_MAPPING,
     ClusterConfig,
+    ClusteringResult,
     ExtremeConfig,
     SegmentConfig,
 )
@@ -244,6 +245,15 @@ def aggregate(
         rescale_deviations=rescale_deviations,
     )
 
+    # Build ClusteringResult
+    clustering_result = _build_clustering_result(
+        agg=agg,
+        n_segments=segments.n_segments if segments else None,
+        cluster_config=cluster,
+        segment_config=segments,
+        rescale=rescale,
+    )
+
     # Build result object
     return AggregationResult(
         typical_periods=typical_periods,
@@ -255,10 +265,57 @@ def aggregate(
         segment_durations=agg.segmentDurationDict if segments else None,
         accuracy=accuracy,
         clustering_duration=getattr(agg, "clusteringDuration", 0.0),
+        clustering=clustering_result,
         _aggregation=agg,
-        _cluster_config=cluster,
-        _segment_config=segments,
-        _rescale=rescale,
+    )
+
+
+def _build_clustering_result(
+    agg: TimeSeriesAggregation,
+    n_segments: int | None,
+    cluster_config: ClusterConfig | None,
+    segment_config: SegmentConfig | None,
+    rescale: bool,
+) -> ClusteringResult:
+    """Build ClusteringResult from a TimeSeriesAggregation object."""
+    # Get cluster centers (convert to Python ints for JSON serialization)
+    cluster_centers: tuple[int, ...] | None = None
+    if agg.clusterCenterIndices is not None:
+        cluster_centers = tuple(int(x) for x in agg.clusterCenterIndices)
+
+    # Compute segment data if segmentation was used
+    segment_order: tuple[tuple[int, ...], ...] | None = None
+    segment_durations: tuple[tuple[int, ...], ...] | None = None
+
+    if n_segments is not None and hasattr(agg, "segmentedNormalizedTypicalPeriods"):
+        segmented_df = agg.segmentedNormalizedTypicalPeriods
+        segment_order_list = []
+        segment_durations_list = []
+
+        for period_idx in segmented_df.index.get_level_values(0).unique():
+            period_data = segmented_df.loc[period_idx]
+            # Index levels: Segment Step, Segment Duration, Original Start Step
+            assignments = []
+            durations = []
+            for seg_step, seg_dur, _orig_start in period_data.index:
+                assignments.extend([int(seg_step)] * int(seg_dur))
+                durations.append(int(seg_dur))
+            segment_order_list.append(tuple(assignments))
+            segment_durations_list.append(tuple(durations))
+
+        segment_order = tuple(segment_order_list)
+        segment_durations = tuple(segment_durations_list)
+
+    return ClusteringResult(
+        period_hours=agg.hoursPerPeriod,
+        cluster_order=tuple(int(x) for x in agg.clusterOrder),
+        cluster_centers=cluster_centers,
+        segment_order=segment_order,
+        segment_durations=segment_durations,
+        segment_centers=None,  # Not currently captured by segmentation
+        cluster_config=cluster_config,
+        segment_config=segment_config,
+        rescale=rescale,
     )
 
 

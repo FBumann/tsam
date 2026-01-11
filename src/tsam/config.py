@@ -575,8 +575,19 @@ class ClusteringResult:
             rescale_deviations=rescale_deviations,
         )
 
+        # Build ClusteringResult - use stored configs if available
+        from tsam.api import _build_clustering_result
+
+        effective_rescale = self.rescale if self.rescale is not None else rescale
+        clustering_result = _build_clustering_result(
+            agg=agg,
+            n_segments=n_segments,
+            cluster_config=self.cluster_config or cluster,
+            segment_config=self.segment_config or segments,
+            rescale=effective_rescale,
+        )
+
         # Build result object
-        # Use stored configs if available, otherwise use what was passed/defaulted
         return AggregationResult(
             typical_periods=typical_periods,
             cluster_assignments=np.array(agg.clusterOrder),
@@ -587,10 +598,8 @@ class ClusteringResult:
             segment_durations=agg.segmentDurationDict if n_segments else None,
             accuracy=accuracy,
             clustering_duration=getattr(agg, "clusteringDuration", 0.0),
+            clustering=clustering_result,
             _aggregation=agg,
-            _cluster_config=self.cluster_config or cluster,
-            _segment_config=self.segment_config or segments,
-            _rescale=self.rescale if self.rescale is not None else rescale,
         )
 
 
