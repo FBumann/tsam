@@ -205,8 +205,8 @@ class ClusteringResult:
 
     Get this from `result.clustering` after running an aggregation.
 
-    Parameters
-    ----------
+    Transfer Fields (used by apply())
+    ----------------------------------
     period_hours : int
         Length of each period in hours (e.g., 24 for daily periods).
 
@@ -230,25 +230,22 @@ class ClusteringResult:
         Indices of timesteps used as segment centers, per typical period.
         Required for fully deterministic segment replication.
 
+    Reference Fields (for documentation, not used by apply())
+    ---------------------------------------------------------
     cluster_config : ClusterConfig, optional
         Clustering configuration used to create this result.
-        Stored for reference; not used when applying.
 
     segment_config : SegmentConfig, optional
         Segmentation configuration used to create this result.
-        Stored for reference; not used when applying.
 
     extremes_config : ExtremeConfig, optional
         Extreme period configuration used to create this result.
-        Stored for reference; not used when applying.
 
     rescale : bool, optional
         Whether rescaling was enabled when creating this result.
-        Default True when applying if not specified.
 
     resolution : float, optional
         Time resolution of input data in hours.
-        Stored for reference; not used when applying.
 
     Examples
     --------
@@ -266,13 +263,15 @@ class ClusteringResult:
     >>> result2 = clustering.apply(df_all)
     """
 
+    # === Transfer fields (used by apply()) ===
     period_hours: int
     cluster_order: tuple[int, ...]
     cluster_centers: tuple[int, ...] | None = None
     segment_order: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
     segment_centers: tuple[tuple[int, ...], ...] | None = None
-    # Parameters used to create this clustering (for reference)
+
+    # === Reference fields (for documentation, not used by apply()) ===
     cluster_config: ClusterConfig | None = None
     segment_config: SegmentConfig | None = None
     extremes_config: ExtremeConfig | None = None
