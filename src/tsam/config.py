@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Literal
 
-import numpy as np
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -239,9 +238,17 @@ class ClusteringResult:
         Segmentation configuration used to create this result.
         Stored for reference; not used when applying.
 
+    extremes_config : ExtremeConfig, optional
+        Extreme period configuration used to create this result.
+        Stored for reference; not used when applying.
+
     rescale : bool, optional
         Whether rescaling was enabled when creating this result.
         Default True when applying if not specified.
+
+    resolution : float, optional
+        Time resolution of input data in hours.
+        Stored for reference; not used when applying.
 
     Examples
     --------
@@ -268,7 +275,9 @@ class ClusteringResult:
     # Parameters used to create this clustering (for reference)
     cluster_config: ClusterConfig | None = None
     segment_config: SegmentConfig | None = None
+    extremes_config: ExtremeConfig | None = None
     rescale: bool | None = None
+    resolution: float | None = None
 
     def __post_init__(self) -> None:
         if self.segment_order is not None and self.segment_durations is None:
@@ -389,8 +398,12 @@ class ClusteringResult:
             result["cluster_config"] = self.cluster_config.to_dict()
         if self.segment_config is not None:
             result["segment_config"] = self.segment_config.to_dict()
+        if self.extremes_config is not None:
+            result["extremes_config"] = self.extremes_config.to_dict()
         if self.rescale is not None:
             result["rescale"] = self.rescale
+        if self.resolution is not None:
+            result["resolution"] = self.resolution
         return result
 
     @classmethod
@@ -415,8 +428,12 @@ class ClusteringResult:
             kwargs["cluster_config"] = ClusterConfig.from_dict(data["cluster_config"])
         if "segment_config" in data:
             kwargs["segment_config"] = SegmentConfig.from_dict(data["segment_config"])
+        if "extremes_config" in data:
+            kwargs["extremes_config"] = ExtremeConfig.from_dict(data["extremes_config"])
         if "rescale" in data:
             kwargs["rescale"] = data["rescale"]
+        if "resolution" in data:
+            kwargs["resolution"] = data["resolution"]
         return cls(**kwargs)
 
     def to_json(self, path: str) -> None:
@@ -579,22 +596,24 @@ class ClusteringResult:
         from tsam.api import _build_clustering_result
 
         effective_rescale = self.rescale if self.rescale is not None else rescale
+        effective_resolution = (
+            self.resolution if self.resolution is not None else resolution
+        )
         clustering_result = _build_clustering_result(
             agg=agg,
             n_segments=n_segments,
             cluster_config=self.cluster_config or cluster,
             segment_config=self.segment_config or segments,
+            extremes_config=self.extremes_config,  # Not re-applied, just preserved
             rescale=effective_rescale,
+            resolution=effective_resolution,
         )
 
         # Build result object
         return AggregationResult(
             typical_periods=typical_periods,
-            cluster_assignments=np.array(agg.clusterOrder),
             cluster_weights=dict(agg.clusterPeriodNoOccur),
-            n_periods=len(agg.clusterPeriodIdx),
             n_timesteps_per_period=agg.timeStepsPerPeriod,
-            n_segments=n_segments,
             segment_durations=agg.segmentDurationDict if n_segments else None,
             accuracy=accuracy,
             clustering_duration=getattr(agg, "clusteringDuration", 0.0),
@@ -646,6 +665,32 @@ class ExtremeConfig:
         """Check if any extreme periods are configured."""
         return bool(
             self.max_value or self.min_value or self.max_period or self.min_period
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result: dict[str, Any] = {}
+        if self.method != "append":
+            result["method"] = self.method
+        if self.max_value:
+            result["max_value"] = self.max_value
+        if self.min_value:
+            result["min_value"] = self.min_value
+        if self.max_period:
+            result["max_period"] = self.max_period
+        if self.min_period:
+            result["min_period"] = self.min_period
+        return result
+
+    @classmethod
+    def from_dict(cls, data: dict) -> ExtremeConfig:
+        """Create from dictionary (e.g., loaded from JSON)."""
+        return cls(
+            method=data.get("method", "append"),
+            max_value=data.get("max_value", []),
+            min_value=data.get("min_value", []),
+            max_period=data.get("max_period", []),
+            min_period=data.get("min_period", []),
         )
 
 

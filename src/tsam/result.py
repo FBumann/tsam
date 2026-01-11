@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
@@ -117,16 +118,32 @@ class AggregationResult:
     """
 
     typical_periods: pd.DataFrame
-    cluster_assignments: np.ndarray
     cluster_weights: dict[int, int]
-    n_periods: int
     n_timesteps_per_period: int
-    n_segments: int | None
     segment_durations: dict[int, float] | None
     accuracy: AccuracyMetrics
     clustering_duration: float
     clustering: ClusteringResult
     _aggregation: TimeSeriesAggregation = field(repr=False, compare=False)
+
+    @cached_property
+    def n_periods(self) -> int:
+        """Number of typical periods (clusters)."""
+        return self.clustering.n_periods
+
+    @cached_property
+    def n_segments(self) -> int | None:
+        """Number of segments per period if segmentation was used, else None."""
+        return self.clustering.n_segments
+
+    @cached_property
+    def cluster_assignments(self) -> np.ndarray:
+        """Which cluster each original period belongs to.
+
+        Length equals the number of original periods.
+        Values are cluster indices (0 to n_periods-1).
+        """
+        return np.array(self.clustering.cluster_order)
 
     def __repr__(self) -> str:
         seg_info = f", n_segments={self.n_segments}" if self.n_segments else ""

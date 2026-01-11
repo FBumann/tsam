@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 from tsam.config import (
@@ -251,17 +250,16 @@ def aggregate(
         n_segments=segments.n_segments if segments else None,
         cluster_config=cluster,
         segment_config=segments,
+        extremes_config=extremes,
         rescale=rescale,
+        resolution=resolution,
     )
 
     # Build result object
     return AggregationResult(
         typical_periods=typical_periods,
-        cluster_assignments=np.array(agg.clusterOrder),
         cluster_weights=dict(agg.clusterPeriodNoOccur),
-        n_periods=len(agg.clusterPeriodIdx),
         n_timesteps_per_period=agg.timeStepsPerPeriod,
-        n_segments=segments.n_segments if segments else None,
         segment_durations=agg.segmentDurationDict if segments else None,
         accuracy=accuracy,
         clustering_duration=getattr(agg, "clusteringDuration", 0.0),
@@ -275,7 +273,9 @@ def _build_clustering_result(
     n_segments: int | None,
     cluster_config: ClusterConfig | None,
     segment_config: SegmentConfig | None,
+    extremes_config: ExtremeConfig | None,
     rescale: bool,
+    resolution: float | None,
 ) -> ClusteringResult:
     """Build ClusteringResult from a TimeSeriesAggregation object."""
     # Get cluster centers (convert to Python ints for JSON serialization)
@@ -315,7 +315,9 @@ def _build_clustering_result(
         segment_centers=None,  # Not currently captured by segmentation
         cluster_config=cluster_config,
         segment_config=segment_config,
+        extremes_config=extremes_config,
         rescale=rescale,
+        resolution=resolution,
     )
 
 
