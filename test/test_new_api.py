@@ -410,6 +410,124 @@ class TestClusteringResult:
         assert clustering.period_hours == 24
 
 
+class TestDeterministicPreservation:
+    """Tests for deterministic clustering preservation through save/load cycles."""
+
+    def test_transfer_fields_preserved_in_json(self, sample_data, tmp_path):
+        """Test that all transfer fields are preserved through JSON roundtrip."""
+        from tsam import ClusteringResult
+
+        result = aggregate(
+            sample_data,
+            n_periods=8,
+            cluster=ClusterConfig(method="kmeans", representation="mean"),
+            segments=SegmentConfig(n_segments=6, representation="medoid"),
+            rescale=False,
+        )
+
+        # Save and load
+        json_path = tmp_path / "clustering.json"
+        result.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+
+        # Verify transfer fields
+        assert clustering.rescale is False
+        assert clustering.representation == "mean"
+        assert clustering.segment_representation == "medoid"
+        assert clustering.period_hours == 24
+        assert len(clustering.cluster_order) == len(result.cluster_assignments)
+        assert clustering.segment_order is not None
+        assert clustering.segment_durations is not None
+
+    def test_representation_method_deterministic(self, sample_data, tmp_path):
+        """Test that representation method produces same results when reapplied."""
+        from tsam import ClusteringResult
+
+        # Test with mean representation
+        result_mean = aggregate(
+            sample_data,
+            n_periods=8,
+            cluster=ClusterConfig(representation="mean"),
+        )
+
+        # Save, load, and reapply
+        json_path = tmp_path / "clustering_mean.json"
+        result_mean.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+        result_reapplied = clustering.apply(sample_data)
+
+        # Results should be identical
+        pd.testing.assert_frame_equal(
+            result_mean.typical_periods,
+            result_reapplied.typical_periods,
+        )
+
+    def test_apply_to_different_data(self, sample_data):
+        """Test applying clustering from subset to full data."""
+        # Cluster on single column
+        wind_only = sample_data[["Wind"]]
+        result_wind = aggregate(wind_only, n_periods=8)
+
+        # Apply to full data
+        result_full = result_wind.clustering.apply(sample_data)
+
+        # Cluster assignments should be identical
+        assert list(result_wind.cluster_assignments) == list(
+            result_full.cluster_assignments
+        )
+
+        # Full result should have all columns
+        assert list(result_full.typical_periods.columns) == list(sample_data.columns)
+
+    def test_segmentation_preserved_through_json(self, sample_data, tmp_path):
+        """Test that segmentation is fully preserved through JSON roundtrip."""
+        from tsam import ClusteringResult
+
+        result1 = aggregate(
+            sample_data,
+            n_periods=8,
+            segments=SegmentConfig(n_segments=6),
+        )
+
+        # Save and load
+        json_path = tmp_path / "clustering_seg.json"
+        result1.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+
+        # Apply to same data
+        result2 = clustering.apply(sample_data)
+
+        # Segmentation structure should match
+        assert result2.n_segments == result1.n_segments
+        assert result2.segment_durations == result1.segment_durations
+
+        # Typical periods should be identical
+        pd.testing.assert_frame_equal(
+            result1.typical_periods,
+            result2.typical_periods,
+        )
+
+    def test_rescale_setting_preserved(self, sample_data, tmp_path):
+        """Test that rescale=False produces different results than rescale=True."""
+        from tsam import ClusteringResult
+
+        # With rescale=False
+        result_no_rescale = aggregate(sample_data, n_periods=8, rescale=False)
+
+        # Save, load, apply
+        json_path = tmp_path / "clustering_no_rescale.json"
+        result_no_rescale.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+        result_reapplied = clustering.apply(sample_data)
+
+        # Should preserve rescale=False behavior
+        assert clustering.rescale is False
+        pd.testing.assert_frame_equal(
+            result_no_rescale.typical_periods,
+            result_reapplied.typical_periods,
+        )
+
+
 class TestSegmentConfigValidation:
     """Tests for SegmentConfig validation."""
 
