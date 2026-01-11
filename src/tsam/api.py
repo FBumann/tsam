@@ -11,6 +11,7 @@ from tsam.config import (
     ClusterConfig,
     ClusteringResult,
     ExtremeConfig,
+    RepresentationMethod,
     SegmentConfig,
 )
 from tsam.result import AccuracyMetrics, AggregationResult
@@ -276,6 +277,9 @@ def _build_clustering_result(
     extremes_config: ExtremeConfig | None,
     rescale: bool,
     resolution: float | None,
+    *,
+    representation: RepresentationMethod | None = None,
+    segment_representation: RepresentationMethod | None = None,
 ) -> ClusteringResult:
     """Build ClusteringResult from a TimeSeriesAggregation object."""
     # Get cluster centers (convert to Python ints for JSON serialization)
@@ -306,6 +310,18 @@ def _build_clustering_result(
         segment_order = tuple(segment_order_list)
         segment_durations = tuple(segment_durations_list)
 
+    # Determine representation values
+    # If explicitly provided, use them; otherwise extract from configs
+    effective_representation = representation
+    if effective_representation is None and cluster_config is not None:
+        effective_representation = cluster_config.get_representation()
+    if effective_representation is None:
+        effective_representation = "medoid"
+
+    effective_segment_representation = segment_representation
+    if effective_segment_representation is None and segment_config is not None:
+        effective_segment_representation = segment_config.representation
+
     return ClusteringResult(
         period_hours=agg.hoursPerPeriod,
         cluster_order=tuple(int(x) for x in agg.clusterOrder),
@@ -313,11 +329,13 @@ def _build_clustering_result(
         segment_order=segment_order,
         segment_durations=segment_durations,
         segment_centers=None,  # Not currently captured by segmentation
+        rescale=rescale,
+        representation=effective_representation,
+        segment_representation=effective_segment_representation,
+        resolution=resolution,
         cluster_config=cluster_config,
         segment_config=segment_config,
         extremes_config=extremes_config,
-        rescale=rescale,
-        resolution=resolution,
     )
 
 

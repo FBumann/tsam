@@ -230,6 +230,18 @@ class ClusteringResult:
         Indices of timesteps used as segment centers, per typical period.
         Required for fully deterministic segment replication.
 
+    rescale : bool, default True
+        Whether to rescale typical periods to match original data means.
+
+    representation : str, default "medoid"
+        How to compute typical periods from cluster members.
+
+    segment_representation : str, optional
+        How to compute segment values. Only used if segmentation is present.
+
+    resolution : float, optional
+        Time resolution of input data in hours. If not provided, inferred.
+
     Reference Fields (for documentation, not used by apply())
     ---------------------------------------------------------
     cluster_config : ClusterConfig, optional
@@ -240,12 +252,6 @@ class ClusteringResult:
 
     extremes_config : ExtremeConfig, optional
         Extreme period configuration used to create this result.
-
-    rescale : bool, optional
-        Whether rescaling was enabled when creating this result.
-
-    resolution : float, optional
-        Time resolution of input data in hours.
 
     Examples
     --------
@@ -270,13 +276,15 @@ class ClusteringResult:
     segment_order: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
     segment_centers: tuple[tuple[int, ...], ...] | None = None
+    rescale: bool = True
+    representation: RepresentationMethod = "medoid"
+    segment_representation: RepresentationMethod | None = None
+    resolution: float | None = None
 
     # === Reference fields (for documentation, not used by apply()) ===
     cluster_config: ClusterConfig | None = None
     segment_config: SegmentConfig | None = None
     extremes_config: ExtremeConfig | None = None
-    rescale: bool | None = None
-    resolution: float | None = None
 
     def __post_init__(self) -> None:
         if self.segment_order is not None and self.segment_durations is None:
@@ -380,9 +388,12 @@ class ClusteringResult:
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
+        # Transfer fields (always included)
         result: dict[str, Any] = {
             "period_hours": self.period_hours,
             "cluster_order": list(self.cluster_order),
+            "rescale": self.rescale,
+            "representation": self.representation,
         }
         if self.cluster_centers is not None:
             result["cluster_centers"] = list(self.cluster_centers)
@@ -392,25 +403,28 @@ class ClusteringResult:
             result["segment_durations"] = [list(s) for s in self.segment_durations]
         if self.segment_centers is not None:
             result["segment_centers"] = [list(s) for s in self.segment_centers]
-        # Parameters used to create this clustering
+        if self.segment_representation is not None:
+            result["segment_representation"] = self.segment_representation
+        if self.resolution is not None:
+            result["resolution"] = self.resolution
+        # Reference fields (optional, for documentation)
         if self.cluster_config is not None:
             result["cluster_config"] = self.cluster_config.to_dict()
         if self.segment_config is not None:
             result["segment_config"] = self.segment_config.to_dict()
         if self.extremes_config is not None:
             result["extremes_config"] = self.extremes_config.to_dict()
-        if self.rescale is not None:
-            result["rescale"] = self.rescale
-        if self.resolution is not None:
-            result["resolution"] = self.resolution
         return result
 
     @classmethod
     def from_dict(cls, data: dict) -> ClusteringResult:
         """Create from dictionary (e.g., loaded from JSON)."""
+        # Transfer fields
         kwargs: dict[str, Any] = {
             "period_hours": data["period_hours"],
             "cluster_order": tuple(data["cluster_order"]),
+            "rescale": data.get("rescale", True),
+            "representation": data.get("representation", "medoid"),
         }
         if "cluster_centers" in data:
             kwargs["cluster_centers"] = tuple(data["cluster_centers"])
@@ -422,17 +436,17 @@ class ClusteringResult:
             )
         if "segment_centers" in data:
             kwargs["segment_centers"] = tuple(tuple(s) for s in data["segment_centers"])
-        # Parameters used to create this clustering
+        if "segment_representation" in data:
+            kwargs["segment_representation"] = data["segment_representation"]
+        if "resolution" in data:
+            kwargs["resolution"] = data["resolution"]
+        # Reference fields
         if "cluster_config" in data:
             kwargs["cluster_config"] = ClusterConfig.from_dict(data["cluster_config"])
         if "segment_config" in data:
             kwargs["segment_config"] = SegmentConfig.from_dict(data["segment_config"])
         if "extremes_config" in data:
             kwargs["extremes_config"] = ExtremeConfig.from_dict(data["extremes_config"])
-        if "rescale" in data:
-            kwargs["rescale"] = data["rescale"]
-        if "resolution" in data:
-            kwargs["resolution"] = data["resolution"]
         return cls(**kwargs)
 
     def to_json(self, path: str) -> None:
@@ -481,15 +495,13 @@ class ClusteringResult:
         data: pd.DataFrame,
         *,
         resolution: float | None = None,
-        cluster: ClusterConfig | None = None,
-        rescale: bool = True,
         round_decimals: int | None = None,
         numerical_tolerance: float = 1e-13,
     ) -> AggregationResult:
         """Apply this clustering to new data.
 
-        Uses the stored cluster assignments and (optionally) segment assignments
-        to aggregate a different dataset with the same clustering structure.
+        Uses the stored cluster assignments and transfer fields to aggregate
+        a different dataset with the same clustering structure deterministically.
 
         Parameters
         ----------
@@ -499,14 +511,7 @@ class ClusteringResult:
 
         resolution : float, optional
             Time resolution of input data in hours.
-            If not provided, inferred from the datetime index.
-
-        cluster : ClusterConfig, optional
-            Clustering configuration for representation method, weights, etc.
-            The clustering assignments themselves come from this ClusteringResult.
-
-        rescale : bool, default True
-            Rescale typical periods to match the original data's mean.
+            If not provided, uses stored resolution or infers from data index.
 
         round_decimals : int, optional
             Round output values to this many decimal places.
@@ -534,27 +539,32 @@ class ClusteringResult:
         from tsam.result import AccuracyMetrics, AggregationResult
         from tsam.timeseriesaggregation import TimeSeriesAggregation
 
-        # Apply defaults
-        if cluster is None:
-            cluster = ClusterConfig()
+        # Use stored resolution if not provided
+        effective_resolution = resolution if resolution is not None else self.resolution
+
+        # Build cluster config with stored representation
+        cluster = ClusterConfig(representation=self.representation)
 
         # Build segment config if we have segment data
         segments: SegmentConfig | None = None
         n_segments: int | None = None
         if self.segment_order is not None and self.segment_durations is not None:
             n_segments = len(self.segment_durations[0])
-            segments = SegmentConfig(n_segments=n_segments)
+            segments = SegmentConfig(
+                n_segments=n_segments,
+                representation=self.segment_representation or "mean",
+            )
 
         # Build old API parameters, passing predefined values directly
         old_params = _build_old_params(
             data=data,
             n_periods=self.n_periods,
             period_hours=self.period_hours,
-            resolution=resolution,
+            resolution=effective_resolution,
             cluster=cluster,
             segments=segments,
             extremes=None,
-            rescale=rescale,
+            rescale=self.rescale,
             round_decimals=round_decimals,
             numerical_tolerance=numerical_tolerance,
             # Predefined values from this ClusteringResult
@@ -591,21 +601,19 @@ class ClusteringResult:
             rescale_deviations=rescale_deviations,
         )
 
-        # Build ClusteringResult - use stored configs if available
+        # Build ClusteringResult - preserve stored values
         from tsam.api import _build_clustering_result
 
-        effective_rescale = self.rescale if self.rescale is not None else rescale
-        effective_resolution = (
-            self.resolution if self.resolution is not None else resolution
-        )
         clustering_result = _build_clustering_result(
             agg=agg,
             n_segments=n_segments,
-            cluster_config=self.cluster_config or cluster,
-            segment_config=self.segment_config or segments,
-            extremes_config=self.extremes_config,  # Not re-applied, just preserved
-            rescale=effective_rescale,
+            cluster_config=self.cluster_config,
+            segment_config=self.segment_config,
+            extremes_config=self.extremes_config,
+            rescale=self.rescale,
             resolution=effective_resolution,
+            representation=self.representation,
+            segment_representation=self.segment_representation,
         )
 
         # Build result object
