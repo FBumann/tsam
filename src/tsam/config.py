@@ -205,10 +205,10 @@ class ClusteringResult:
 
     Transfer Fields (used by apply())
     ----------------------------------
-    period_hours : int
+    period_duration : int
         Length of each period in hours (e.g., 24 for daily periods).
 
-    cluster_order : tuple[int, ...]
+    cluster_assignments : tuple[int, ...]
         Cluster assignments for each original period.
         Length equals the number of original periods in the data.
 
@@ -565,8 +565,8 @@ class ClusteringResult:
         old_params = _build_old_params(
             data=data,
             n_clusters=self.n_clusters,
-            period_hours=self.period_hours,
-            resolution=effective_resolution,
+            period_duration=self.period_hours,
+            timestep_duration=effective_resolution,
             cluster=cluster,
             segments=segments,
             extremes=None,

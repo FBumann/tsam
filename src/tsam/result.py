@@ -128,8 +128,8 @@ class AggregationResult:
     _aggregation: TimeSeriesAggregation = field(repr=False, compare=False)
 
     @cached_property
-    def n_periods(self) -> int:
-        """Number of typical periods (clusters)."""
+    def n_clusters(self) -> int:
+        """Number of clusters (typical periods)."""
         return self.clustering.n_clusters
 
     @cached_property
@@ -142,7 +142,7 @@ class AggregationResult:
         """Which cluster each original period belongs to.
 
         Length equals the number of original periods.
-        Values are cluster indices (0 to n_periods-1).
+        Values are cluster indices (0 to n_clusters-1).
         """
         return np.array(self.clustering.cluster_assignments)
 
@@ -150,7 +150,7 @@ class AggregationResult:
         seg_info = f", n_segments={self.n_segments}" if self.n_segments else ""
         return (
             f"AggregationResult(\n"
-            f"  n_periods={self.n_periods},\n"
+            f"  n_clusters={self.n_clusters},\n"
             f"  n_timesteps_per_period={self.n_timesteps_per_period}{seg_info},\n"
             f"  accuracy={self.accuracy}\n"
             f")"
@@ -188,7 +188,7 @@ class AggregationResult:
             "cluster_representatives": self.cluster_representatives.to_dict(),
             "cluster_assignments": self.cluster_assignments.tolist(),
             "cluster_weights": self.cluster_weights,
-            "n_periods": self.n_periods,
+            "n_clusters": self.n_clusters,
             "n_timesteps_per_period": self.n_timesteps_per_period,
             "n_segments": self.n_segments,
             "segment_durations": self.segment_durations,
@@ -222,9 +222,9 @@ class AggregationResult:
         Returns
         -------
         list[int]
-            List of indices [0, 1, ..., n_periods-1].
+            List of indices [0, 1, ..., n_clusters-1].
         """
-        return list(range(self.n_periods))
+        return list(range(self.n_clusters))
 
     @property
     def assignments(self) -> pd.DataFrame:

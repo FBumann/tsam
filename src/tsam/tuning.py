@@ -36,11 +36,18 @@ def _test_single_config_file(
     """Test a single configuration for parallel execution.
 
     Loads data from file - no DataFrame pickling.
-    Args contains (n_clusters, n_segments, period_hours, resolution, data_path, cluster_dict).
+    Args contains (n_clusters, n_segments, period_duration, timestep_duration, data_path, cluster_dict).
 
     Returns (n_clusters, n_segments, rmse, result).
     """
-    n_clusters, n_segments, period_hours, resolution, data_path, cluster_dict = args
+    (
+        n_clusters,
+        n_segments,
+        period_duration,
+        timestep_duration,
+        data_path,
+        cluster_dict,
+    ) = args
     try:
         # Load data fresh from file - no pickling
         data = pd.read_csv(
@@ -51,8 +58,8 @@ def _test_single_config_file(
         result = aggregate(
             data,
             n_clusters=n_clusters,
-            period_duration=period_hours,
-            timestep_duration=resolution,
+            period_duration=period_duration,
+            timestep_duration=timestep_duration,
             cluster=cluster,
             segments=SegmentConfig(n_segments=n_segments),
         )
@@ -69,8 +76,8 @@ def _test_single_config_file(
         return (n_clusters, n_segments, float("inf"), None)
 
 
-def _infer_resolution(data: pd.DataFrame) -> float:
-    """Infer time resolution in hours from DataFrame datetime index."""
+def _infer_timestep_duration(data: pd.DataFrame) -> float:
+    """Infer time timestep_duration in hours from DataFrame datetime index."""
     if len(data) < 2:
         return 1.0  # Default to hourly
     try:
@@ -111,8 +118,8 @@ def _parallel_context(
 def _test_configs(
     configs: list[tuple[int, int]],
     data: pd.DataFrame,
-    period_hours: float,
-    resolution: float,
+    period_duration: float,
+    timestep_duration: float,
     cluster: ClusterConfig,
     n_workers: int,
     show_progress: bool = False,
@@ -123,8 +130,8 @@ def _test_configs(
     Args:
         configs: List of (n_clusters, n_segments) tuples to test.
         data: Input time series data.
-        period_hours: Hours per period.
-        resolution: Time resolution in hours.
+        period_duration: Hours per period.
+        timestep_duration: Time timestep_duration in hours.
         cluster: Clustering configuration.
         n_workers: Number of parallel workers (1 for sequential).
         show_progress: Whether to show progress bar.
@@ -141,7 +148,14 @@ def _test_configs(
     if n_workers > 1:
         with _parallel_context(data, cluster) as (data_path, cluster_dict):
             full_configs = [
-                (n_per, n_seg, period_hours, resolution, data_path, cluster_dict)
+                (
+                    n_per,
+                    n_seg,
+                    period_duration,
+                    timestep_duration,
+                    data_path,
+                    cluster_dict,
+                )
                 for n_per, n_seg in configs
             ]
             with ProcessPoolExecutor(max_workers=n_workers) as executor:
@@ -164,8 +178,8 @@ def _test_configs(
                 result = aggregate(
                     data,
                     n_clusters=n_per,
-                    period_duration=period_hours,
-                    timestep_duration=resolution,
+                    period_duration=period_duration,
+                    timestep_duration=timestep_duration,
                     cluster=cluster,
                     segments=SegmentConfig(n_segments=n_seg),
                 )
@@ -364,18 +378,18 @@ def find_optimal_combination(
         cluster = ClusterConfig()
 
     # Parse duration parameters to hours
-    period_hours = _parse_duration_hours(period_duration, "period_duration")
-    resolution = (
+    period_duration = _parse_duration_hours(period_duration, "period_duration")
+    timestep_duration = (
         _parse_duration_hours(timestep_duration, "timestep_duration")
         if timestep_duration is not None
-        else _infer_resolution(data)
+        else _infer_timestep_duration(data)
     )
 
-    if resolution <= 0:
+    if timestep_duration <= 0:
         raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     n_timesteps = len(data)
-    timesteps_per_period = int(period_hours / resolution)
+    timesteps_per_period = int(period_duration / timestep_duration)
 
     max_periods = n_timesteps // timesteps_per_period
     max_segments = timesteps_per_period
@@ -412,8 +426,8 @@ def find_optimal_combination(
     results = _test_configs(
         configs_to_test,
         data,
-        period_hours,
-        resolution,
+        period_duration,
+        timestep_duration,
         cluster,
         n_workers,
         show_progress=show_progress,
@@ -527,17 +541,17 @@ def find_pareto_front(
 
     # Parse duration parameters to hours
     period_hours = _parse_duration_hours(period_duration, "period_duration")
-    resolution = (
+    timestep_duration = (
         _parse_duration_hours(timestep_duration, "timestep_duration")
         if timestep_duration is not None
-        else _infer_resolution(data)
+        else _infer_timestep_duration(data)
     )
 
-    if resolution <= 0:
+    if timestep_duration <= 0:
         raise ValueError(f"timestep_duration must be positive, got {timestep_duration}")
 
     n_timesteps = len(data)
-    timesteps_per_period = int(period_hours / resolution)
+    timesteps_per_period = int(period_hours / timestep_duration)
 
     max_periods = n_timesteps // timesteps_per_period
     max_segments = timesteps_per_period
@@ -552,8 +566,8 @@ def find_pareto_front(
         return _find_pareto_front_targeted(
             data=data,
             timesteps=timesteps,
-            period_hours=period_hours,
-            resolution=resolution,
+            period_duration=period_hours,
+            timestep_duration=timestep_duration,
             max_periods=max_periods,
             max_segments=max_segments,
             cluster=cluster,
@@ -564,8 +578,8 @@ def find_pareto_front(
     # Steepest descent exploration
     return _find_pareto_front_steepest(
         data=data,
-        period_hours=period_hours,
-        resolution=resolution,
+        period_duration=period_hours,
+        timestep_duration=timestep_duration,
         max_periods=max_periods,
         max_segments=max_segments,
         max_timesteps=max_timesteps,
@@ -578,8 +592,8 @@ def find_pareto_front(
 def _find_pareto_front_targeted(
     data: pd.DataFrame,
     timesteps: Sequence[int],
-    period_hours: float,
-    resolution: float,
+    period_duration: float,
+    timestep_duration: float,
     max_periods: int,
     max_segments: int,
     cluster: ClusterConfig,
@@ -607,8 +621,8 @@ def _find_pareto_front_targeted(
     results = _test_configs(
         configs,
         data,
-        period_hours,
-        resolution,
+        period_duration,
+        timestep_duration,
         cluster,
         n_workers,
         show_progress=show_progress,
@@ -649,8 +663,8 @@ def _find_pareto_front_targeted(
 
 def _find_pareto_front_steepest(
     data: pd.DataFrame,
-    period_hours: float,
-    resolution: float,
+    period_duration: float,
+    timestep_duration: float,
     max_periods: int,
     max_segments: int,
     max_timesteps: int,
@@ -675,8 +689,8 @@ def _find_pareto_front_steepest(
     results = _test_configs(
         [(n_clusters, n_segments)],
         data,
-        period_hours,
-        resolution,
+        period_duration,
+        timestep_duration,
         cluster,
         n_workers=1,  # Single config, no parallelization needed
     )
@@ -702,8 +716,8 @@ def _find_pareto_front_steepest(
         results = _test_configs(
             candidates,
             data,
-            period_hours,
-            resolution,
+            period_duration,
+            timestep_duration,
             cluster,
             n_workers=min(n_workers, 2),
         )
@@ -747,8 +761,8 @@ def _find_pareto_front_steepest(
         results = _test_configs(
             remaining_periods,
             data,
-            period_hours,
-            resolution,
+            period_duration,
+            timestep_duration,
             cluster,
             n_workers,
         )
@@ -768,8 +782,8 @@ def _find_pareto_front_steepest(
         results = _test_configs(
             remaining_segments,
             data,
-            period_hours,
-            resolution,
+            period_duration,
+            timestep_duration,
             cluster,
             n_workers,
         )

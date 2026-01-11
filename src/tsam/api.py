@@ -242,8 +242,8 @@ def aggregate(
     old_params = _build_old_params(
         data=data,
         n_clusters=n_clusters,
-        period_hours=period_hours,
-        resolution=resolution,
+        period_duration=period_hours,
+        timestep_duration=resolution,
         cluster=cluster,
         segments=segments,
         extremes=extremes,
@@ -396,8 +396,8 @@ def _build_clustering_result(
 def _build_old_params(
     data: pd.DataFrame,
     n_clusters: int,
-    period_hours: float,
-    resolution: float | None,
+    period_duration: float,
+    timestep_duration: float | None,
     cluster: ClusterConfig,
     segments: SegmentConfig | None,
     extremes: ExtremeConfig | None,
@@ -416,13 +416,13 @@ def _build_old_params(
     params: dict = {
         "timeSeries": data,
         "noTypicalPeriods": n_clusters,
-        "hoursPerPeriod": period_hours,
+        "hoursPerPeriod": period_duration,
         "rescaleClusterPeriods": preserve_column_means,
         "numericalTolerance": numerical_tolerance,
     }
 
-    if resolution is not None:
-        params["resolution"] = resolution
+    if timestep_duration is not None:
+        params["resolution"] = timestep_duration
 
     if round_decimals is not None:
         params["roundOutput"] = round_decimals
