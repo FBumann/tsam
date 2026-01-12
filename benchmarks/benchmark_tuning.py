@@ -102,7 +102,7 @@ def main() -> None:
     ), "Parallel and sequential results differ (RMSE mismatch)"
 
     assert result_par.optimal_n_clusters == result_seq.optimal_n_clusters, (
-        "Parallel and sequential results differ (n_periods mismatch)"
+        "Parallel and sequential results differ (n_clusters mismatch)"
     )
 
     assert result_par.optimal_n_segments == result_seq.optimal_n_segments, (

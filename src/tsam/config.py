@@ -587,7 +587,12 @@ class ClusteringResult:
 
         # Run aggregation using old implementation
         agg = TimeSeriesAggregation(**old_params)
-        typical_periods = agg.createTypicalPeriods()
+        cluster_representatives = agg.createTypicalPeriods()
+
+        # Rename index levels for consistency with new API terminology
+        cluster_representatives = cluster_representatives.rename_axis(
+            index={"PeriodNum": "cluster", "TimeStep": "timestep"}
+        )
 
         # Build accuracy metrics
         accuracy_df = agg.accuracyIndicators()
@@ -626,7 +631,7 @@ class ClusteringResult:
 
         # Build result object
         return AggregationResult(
-            cluster_representatives=typical_periods,
+            cluster_representatives=cluster_representatives,
             cluster_weights=dict(agg.clusterPeriodNoOccur),
             n_timesteps_per_period=agg.timeStepsPerPeriod,
             segment_durations=self.segment_durations,
