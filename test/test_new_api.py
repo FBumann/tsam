@@ -431,7 +431,7 @@ class TestDeterministicPreservation:
         clustering = ClusteringResult.from_json(str(json_path))
 
         # Verify transfer fields
-        assert clustering.rescale is False
+        assert clustering.preserve_column_means is False
         assert clustering.representation == "mean"
         assert clustering.segment_representation == "medoid"
         assert clustering.period_duration == 24
@@ -509,25 +509,25 @@ class TestDeterministicPreservation:
             result2.cluster_representatives,
         )
 
-    def test_rescale_setting_preserved(self, sample_data, tmp_path):
+    def test_preserve_column_means_setting_preserved(self, sample_data, tmp_path):
         """Test that preserve_column_means=False produces different results than preserve_column_means=True."""
         from tsam import ClusteringResult
 
         # With preserve_column_means=False
-        result_no_rescale = aggregate(
+        result_no_preserve_column_means = aggregate(
             sample_data, n_clusters=8, preserve_column_means=False
         )
 
         # Save, load, apply
-        json_path = tmp_path / "clustering_no_rescale.json"
-        result_no_rescale.clustering.to_json(str(json_path))
+        json_path = tmp_path / "clustering_no_preserve_column_means.json"
+        result_no_preserve_column_means.clustering.to_json(str(json_path))
         clustering = ClusteringResult.from_json(str(json_path))
         result_reapplied = clustering.apply(sample_data)
 
         # Should preserve preserve_column_means=False behavior
-        assert clustering.rescale is False
+        assert clustering.preserve_column_means is False
         pd.testing.assert_frame_equal(
-            result_no_rescale.cluster_representatives,
+            result_no_preserve_column_means.cluster_representatives,
             result_reapplied.cluster_representatives,
         )
 
