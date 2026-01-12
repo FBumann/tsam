@@ -228,7 +228,7 @@ class ClusteringResult:
         Indices of timesteps used as segment centers, per typical period.
         Required for fully deterministic segment replication.
 
-    rescale : bool, default True
+    preserve_column_means : bool, default True
         Whether to rescale typical periods to match original data means.
 
     representation : str, default "medoid"
@@ -274,7 +274,7 @@ class ClusteringResult:
     segment_assignments: tuple[tuple[int, ...], ...] | None = None
     segment_durations: tuple[tuple[int, ...], ...] | None = None
     segment_centers: tuple[tuple[int, ...], ...] | None = None
-    rescale: bool = True
+    preserve_column_means: bool = True
     representation: RepresentationMethod = "medoid"
     segment_representation: RepresentationMethod | None = None
     timestep_duration: float | None = None
@@ -394,7 +394,7 @@ class ClusteringResult:
         result: dict[str, Any] = {
             "period_duration": self.period_duration,
             "cluster_assignments": list(self.cluster_assignments),
-            "rescale": self.rescale,
+            "preserve_column_means": self.preserve_column_means,
             "representation": self.representation,
         }
         if self.cluster_centers is not None:
@@ -425,7 +425,7 @@ class ClusteringResult:
         kwargs: dict[str, Any] = {
             "period_duration": data["period_duration"],
             "cluster_assignments": tuple(data["cluster_assignments"]),
-            "rescale": data.get("rescale", True),
+            "preserve_column_means": data.get("preserve_column_means", True),
             "representation": data.get("representation", "medoid"),
         }
         if "cluster_centers" in data:
@@ -574,7 +574,7 @@ class ClusteringResult:
             cluster=cluster,
             segments=segments,
             extremes=None,
-            preserve_column_means=self.rescale,
+            preserve_column_means=self.preserve_column_means,
             round_decimals=round_decimals,
             numerical_tolerance=numerical_tolerance,
             # Predefined values from this ClusteringResult
@@ -625,7 +625,7 @@ class ClusteringResult:
             cluster_config=cluster,
             segment_config=segments,
             extremes_config=self.extremes_config,
-            preserve_column_means=self.rescale,
+            preserve_column_means=self.preserve_column_means,
             timestep_duration=effective_timestep_duration,
         )
 

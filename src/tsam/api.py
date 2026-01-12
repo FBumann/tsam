@@ -383,7 +383,7 @@ def _build_clustering_result(
         segment_assignments=segment_assignments,
         segment_durations=segment_durations,
         segment_centers=segment_centers,
-        rescale=preserve_column_means,
+        preserve_column_means=preserve_column_means,
         representation=representation,
         segment_representation=segment_representation,
         timestep_duration=timestep_duration,
