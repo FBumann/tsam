@@ -12,6 +12,7 @@ import tempfile
 from concurrent.futures import ProcessPoolExecutor
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, field
+from functools import cached_property
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -256,6 +257,201 @@ class TuningResult:
     all_results: list[AggregationResult] = field(default_factory=list)
 
 
+class ParetoFrontResult:
+    """Result of Pareto front exploration.
+
+    Wraps a list of TuningResult objects representing Pareto-optimal
+    configurations, providing convenient analysis and visualization methods.
+
+    Attributes
+    ----------
+    results : list[TuningResult]
+        Individual Pareto-optimal configurations, ordered by increasing
+        complexity (timesteps).
+
+    Examples
+    --------
+    >>> pareto = find_pareto_front(df, max_timesteps=500)
+    >>> pareto.summary  # DataFrame of all points
+    >>> pareto.plot()   # Visualize the Pareto front
+    >>> pareto[0]       # Access first TuningResult
+    >>> pareto.find_by_timesteps(100)  # Find config closest to 100 timesteps
+    """
+
+    def __init__(self, results: list[TuningResult]) -> None:
+        self._results = results
+
+    @property
+    def results(self) -> list[TuningResult]:
+        """List of Pareto-optimal TuningResult objects."""
+        return self._results
+
+    @cached_property
+    def summary(self) -> pd.DataFrame:
+        """Summary DataFrame of all Pareto-optimal configurations.
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with columns: n_clusters, n_segments, timesteps, rmse.
+            Indexed by position in the Pareto front.
+        """
+        return pd.DataFrame(
+            [
+                {
+                    "n_clusters": r.optimal_n_clusters,
+                    "n_segments": r.optimal_n_segments,
+                    "timesteps": r.optimal_n_clusters * r.optimal_n_segments,
+                    "rmse": r.optimal_rmse,
+                }
+                for r in self._results
+            ]
+        )
+
+    def find_by_timesteps(self, target: int) -> TuningResult:
+        """Find the configuration closest to a target timestep count.
+
+        Parameters
+        ----------
+        target : int
+            Target number of timesteps.
+
+        Returns
+        -------
+        TuningResult
+            The Pareto-optimal configuration with timestep count
+            closest to the target.
+
+        Raises
+        ------
+        ValueError
+            If the Pareto front is empty.
+        """
+        if not self._results:
+            raise ValueError("Pareto front is empty")
+
+        best = self._results[0]
+        best_diff = abs(best.optimal_n_clusters * best.optimal_n_segments - target)
+
+        for r in self._results[1:]:
+            diff = abs(r.optimal_n_clusters * r.optimal_n_segments - target)
+            if diff < best_diff:
+                best = r
+                best_diff = diff
+
+        return best
+
+    def find_by_rmse(self, threshold: float) -> TuningResult:
+        """Find the smallest configuration that achieves a target RMSE.
+
+        Parameters
+        ----------
+        threshold : float
+            Maximum acceptable RMSE.
+
+        Returns
+        -------
+        TuningResult
+            The Pareto-optimal configuration with fewest timesteps
+            that achieves RMSE <= threshold.
+
+        Raises
+        ------
+        ValueError
+            If no configuration achieves the target RMSE.
+        """
+        for r in self._results:
+            if r.optimal_rmse <= threshold:
+                return r
+
+        raise ValueError(
+            f"No configuration achieves RMSE <= {threshold}. "
+            f"Best available: {self._results[-1].optimal_rmse:.4f}"
+        )
+
+    def plot(
+        self,
+        show_labels: bool = True,
+        **kwargs: object,
+    ) -> object:
+        """Plot the Pareto front (RMSE vs timesteps).
+
+        Parameters
+        ----------
+        show_labels : bool, default True
+            Whether to show hover labels with configuration details.
+        **kwargs
+            Additional arguments passed to plotly scatter.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+            The plotly figure.
+        """
+        import plotly.graph_objects as go
+
+        summary = self.summary
+
+        hover_text = [
+            f"{row['n_clusters']}x{row['n_segments']}<br>"
+            f"Timesteps: {row['timesteps']}<br>"
+            f"RMSE: {row['rmse']:.4f}"
+            for _, row in summary.iterrows()
+        ]
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=summary["timesteps"],
+                y=summary["rmse"],
+                mode="lines+markers",
+                marker={"size": 10},
+                hovertext=hover_text if show_labels else None,
+                hoverinfo="text" if show_labels else "x+y",
+                **kwargs,
+            )
+        )
+
+        fig.update_layout(
+            title="Pareto Front: Complexity vs Accuracy",
+            xaxis_title="Timesteps (n_clusters x n_segments)",
+            yaxis_title="RMSE",
+            hovermode="closest",
+        )
+
+        return fig
+
+    def __len__(self) -> int:
+        return len(self._results)
+
+    def __getitem__(self, index: int) -> TuningResult:
+        return self._results[index]
+
+    def __iter__(self):
+        return iter(self._results)
+
+    def __repr__(self) -> str:
+        if not self._results:
+            return "ParetoFrontResult(empty)"
+
+        min_ts = (
+            self._results[0].optimal_n_clusters * self._results[0].optimal_n_segments
+        )
+        max_ts = (
+            self._results[-1].optimal_n_clusters * self._results[-1].optimal_n_segments
+        )
+        min_rmse = self._results[-1].optimal_rmse
+        max_rmse = self._results[0].optimal_rmse
+
+        return (
+            f"ParetoFrontResult(\n"
+            f"  n_points={len(self._results)},\n"
+            f"  timesteps={min_ts} to {max_ts},\n"
+            f"  rmse={min_rmse:.4f} to {max_rmse:.4f}\n"
+            f")"
+        )
+
+
 def find_clusters_for_reduction(
     n_timesteps: int,
     n_segments: int,
@@ -477,7 +673,7 @@ def find_pareto_front(
     cluster: ClusterConfig | None = None,
     show_progress: bool = True,
     n_jobs: int | None = None,
-) -> list[TuningResult]:
+) -> ParetoFrontResult:
     """Find all Pareto-optimal aggregations from 1 period to full resolution.
 
     Uses a steepest-descent approach to efficiently explore the
@@ -516,13 +712,19 @@ def find_pareto_front(
 
     Returns
     -------
-    list[TuningResult]
-        List of Pareto-optimal configurations, ordered by increasing
-        complexity (timesteps).
+    ParetoFrontResult
+        Result object containing Pareto-optimal configurations with
+        convenience methods for analysis and visualization.
 
     Examples
     --------
     >>> pareto = find_pareto_front(df, max_timesteps=500)
+    >>> pareto.summary  # DataFrame of all Pareto-optimal points
+    >>> pareto.plot()   # Visualize the Pareto front
+    >>> pareto.find_by_timesteps(100)  # Find config closest to 100 timesteps
+    >>> pareto.find_by_rmse(0.05)      # Find smallest config with RMSE <= 0.05
+
+    >>> # Iterate over results
     >>> for result in pareto:
     ...     print(f"{result.optimal_n_clusters}x{result.optimal_n_segments}: "
     ...           f"RMSE={result.optimal_rmse:.4f}")
@@ -563,7 +765,7 @@ def find_pareto_front(
 
     # If specific timesteps are provided, use targeted exploration
     if timesteps is not None:
-        return _find_pareto_front_targeted(
+        results = _find_pareto_front_targeted(
             data=data,
             timesteps=timesteps,
             period_duration=period_duration,
@@ -574,9 +776,10 @@ def find_pareto_front(
             show_progress=show_progress,
             n_workers=n_workers,
         )
+        return ParetoFrontResult(results)
 
     # Steepest descent exploration
-    return _find_pareto_front_steepest(
+    results = _find_pareto_front_steepest(
         data=data,
         period_duration=period_duration,
         timestep_duration=timestep_duration,
@@ -587,6 +790,7 @@ def find_pareto_front(
         show_progress=show_progress,
         n_workers=n_workers,
     )
+    return ParetoFrontResult(results)
 
 
 def _find_pareto_front_targeted(
