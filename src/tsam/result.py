@@ -381,14 +381,12 @@ class AggregationResult:
         Examples
         --------
         >>> result = tsam.aggregate(df, n_clusters=8)
-        >>> result.plot.heatmap(column="Load")
-        >>> result.plot.duration_curve()
+        >>> result.plot.compare()  # Compare original vs reconstructed
+        >>> result.plot.residuals()  # View reconstruction errors
         >>> result.plot.cluster_representatives()
         >>> result.plot.cluster_weights()
         >>> result.plot.accuracy()
         """
         from tsam.plot import ResultPlotAccessor
 
-        # Get original data from the internal aggregation object
-        original_data = getattr(self._aggregation, "timeSeries", None)
-        return ResultPlotAccessor(self, original_data=original_data)
+        return ResultPlotAccessor(self)

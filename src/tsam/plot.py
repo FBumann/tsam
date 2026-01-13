@@ -5,16 +5,20 @@ Uses Plotly Express for clean, declarative plotting with automatic faceting and 
 
 Two usage patterns are supported:
 
-1. Module-level functions:
+1. Module-level functions for exploring raw data:
    >>> import tsam
    >>> tsam.plot.heatmap(df, column="Load")
    >>> tsam.plot.duration_curve(df)
-   >>> tsam.plot.compare({"Original": df, "Aggregated": result.reconstruct()}, column="Load")
+   >>> tsam.plot.time_slice(df, start="2010-02-01", end="2010-02-07")
+   >>> tsam.plot.compare({"Method1": df1, "Method2": df2}, column="Load")
 
-2. Accessor pattern on results:
+2. Accessor pattern on results for validation and visualization:
    >>> result = tsam.aggregate(df, n_clusters=8)
-   >>> result.plot.heatmap(column="Load")
-   >>> result.plot.duration_curve()
+   >>> result.plot.compare()  # Compare original vs reconstructed
+   >>> result.plot.residuals()  # View reconstruction errors
+   >>> result.plot.cluster_representatives()
+   >>> result.plot.cluster_weights()
+   >>> result.plot.accuracy()
 
 Note: This module requires the 'plotly' optional dependency.
 Install with: pip install tsam[plot]
@@ -30,7 +34,6 @@ import pandas as pd
 try:
     import plotly.express as px
     import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
 except ImportError as e:
     raise ImportError(
         "The tsam.plot module requires plotly. Install it with: pip install tsam[plot]"
@@ -89,98 +92,6 @@ def heatmap(
         title=title or f"{column} Heatmap",
         color_continuous_scale=color_continuous_scale,
         aspect="auto",
-    )
-
-    return fig
-
-
-def heatmaps(
-    data: pd.DataFrame,
-    columns: list[str] | None = None,
-    period_duration: int | float | str = 24,
-    title: str | None = None,
-    color_continuous_scale: str = "Viridis",
-    reference_data: pd.DataFrame | None = None,
-) -> go.Figure:
-    """Create stacked heatmaps for multiple columns.
-
-    Creates a subplot with one heatmap per column, all sharing the same
-    x-axis (days). Useful for visualizing how multiple time series are
-    represented across periods.
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        Time series data to plot.
-    columns : list[str], optional
-        Columns to plot. If None, plots all columns.
-    period_duration : int, float, or str, default 24
-        Length of each period. Accepts:
-        - int/float: hours (e.g., 24 for daily, 168 for weekly)
-        - str: pandas Timedelta string (e.g., '24h', '1d', '1w')
-    title : str, optional
-        Overall figure title.
-    color_continuous_scale : str, default "Viridis"
-        Plotly color scale name.
-    reference_data : pd.DataFrame, optional
-        Reference data for consistent color scaling (e.g., original data
-        when plotting reconstructed data). Uses min/max from reference
-        for color scale bounds.
-
-    Returns
-    -------
-    go.Figure
-        Plotly figure with stacked heatmaps.
-
-    Examples
-    --------
-    >>> import tsam
-    >>> result = tsam.aggregate(df, n_clusters=8)
-    >>> # Plot all columns from reconstructed data, scaled to original
-    >>> tsam.plot.heatmaps(result.reconstruct(), reference_data=df)
-    """
-    from tsam.api import _parse_duration_hours
-    from tsam.timeseriesaggregation import unstackToPeriods
-
-    if columns is None:
-        columns = list(data.columns)
-
-    period_duration = int(_parse_duration_hours(period_duration, "period_duration"))
-    n_cols = len(columns)
-    ref = reference_data if reference_data is not None else data
-
-    fig = make_subplots(
-        rows=n_cols,
-        cols=1,
-        subplot_titles=columns,
-        shared_xaxes=True,
-        vertical_spacing=0.05,
-    )
-
-    for i, col in enumerate(columns, 1):
-        stacked, _ = unstackToPeriods(data[[col]].copy(), period_duration)
-
-        fig.add_trace(
-            go.Heatmap(
-                z=stacked[col].values.T,
-                colorscale=color_continuous_scale,
-                zmin=ref[col].min(),
-                zmax=ref[col].max(),
-                colorbar={
-                    "title": col,
-                    "y": 1 - (i - 0.5) / n_cols,
-                    "len": 0.9 / n_cols,
-                },
-            ),
-            row=i,
-            col=1,
-        )
-        fig.update_yaxes(title_text="Hour", row=i, col=1)
-
-    fig.update_xaxes(title_text="Day", row=n_cols, col=1)
-    fig.update_layout(
-        height=200 * n_cols,
-        title=title or "Time Series Heatmaps",
     )
 
     return fig
@@ -397,10 +308,6 @@ def compare(
     return fig
 
 
-# Aliases for backward compatibility and convenience
-compare_results = compare
-
-
 class ResultPlotAccessor:
     """Plotting accessor for AggregationResult.
 
@@ -409,121 +316,14 @@ class ResultPlotAccessor:
     Examples
     --------
     >>> result = tsam.aggregate(df, n_clusters=8)
-    >>> result.plot.heatmap(column="Load")
-    >>> result.plot.duration_curve()
+    >>> result.plot.compare()  # Compare original vs reconstructed
+    >>> result.plot.residuals()  # View reconstruction errors
     >>> result.plot.cluster_representatives()
     >>> result.plot.cluster_weights()
     """
 
-    def __init__(
-        self, result: AggregationResult, original_data: pd.DataFrame | None = None
-    ):
+    def __init__(self, result: AggregationResult):
         self._result = result
-        self._original = original_data
-
-    def heatmap(
-        self,
-        column: str | None = None,
-        use_original: bool = False,
-        title: str | None = None,
-        color_continuous_scale: str = "Viridis",
-    ) -> go.Figure:
-        """Plot heatmap of reconstructed (or original) data.
-
-        Parameters
-        ----------
-        column : str, optional
-            Column to plot.
-        use_original : bool, default False
-            If True and original data available, plot original instead.
-        title : str, optional
-            Plot title.
-        color_continuous_scale : str, default "Viridis"
-            Color scale.
-
-        Returns
-        -------
-        go.Figure
-        """
-        if use_original and self._original is not None:
-            data = self._original
-        else:
-            data = self._result.reconstruct()
-
-        return heatmap(
-            data,
-            column=column,
-            period_duration=self._result.n_timesteps_per_period,
-            title=title,
-            color_continuous_scale=color_continuous_scale,
-        )
-
-    def heatmaps(
-        self,
-        columns: list[str] | None = None,
-        use_original: bool = False,
-        title: str | None = None,
-        color_continuous_scale: str = "Viridis",
-    ) -> go.Figure:
-        """Plot heatmaps for all columns.
-
-        Parameters
-        ----------
-        columns : list[str], optional
-            Columns to plot. If None, plots all.
-        use_original : bool, default False
-            If True and original data available, plot original instead.
-        title : str, optional
-            Plot title.
-        color_continuous_scale : str, default "Viridis"
-            Color scale.
-
-        Returns
-        -------
-        go.Figure
-        """
-        ref: pd.DataFrame | None
-        if use_original and self._original is not None:
-            data = self._original
-            ref = self._original
-        else:
-            data = self._result.reconstruct()
-            ref = self._original
-
-        return heatmaps(
-            data,
-            columns=columns,
-            period_duration=self._result.n_timesteps_per_period,
-            title=title,
-            color_continuous_scale=color_continuous_scale,
-            reference_data=ref,
-        )
-
-    def duration_curve(
-        self,
-        columns: list[str] | None = None,
-        title: str | None = None,
-    ) -> go.Figure:
-        """Plot duration curves of reconstructed data.
-
-        For comparing original vs reconstructed, use ``result.plot.compare(mode="duration_curve")``.
-
-        Parameters
-        ----------
-        columns : list[str], optional
-            Columns to plot.
-        title : str, optional
-            Plot title.
-
-        Returns
-        -------
-        go.Figure
-        """
-        return duration_curve(
-            self._result.reconstructed,
-            columns=columns,
-            title=title or "Duration Curve",
-        )
 
     def cluster_representatives(
         self,
@@ -607,48 +407,6 @@ class ResultPlotAccessor:
         )
         fig.update_traces(textposition="auto")
         fig.update_layout(showlegend=False)
-
-        return fig
-
-    def cluster_assignments(
-        self,
-        title: str = "Cluster Assignments",
-        color_continuous_scale: str = "Viridis",
-    ) -> go.Figure:
-        """Plot which cluster each original period was assigned to.
-
-        Shows a heatmap visualization of the cluster assignment for each
-        original period in the dataset.
-
-        Parameters
-        ----------
-        title : str, default "Cluster Assignments"
-            Plot title.
-        color_continuous_scale : str, default "Viridis"
-            Plotly color scale name.
-
-        Returns
-        -------
-        go.Figure
-
-        Examples
-        --------
-        >>> result = tsam.aggregate(df, n_clusters=8)
-        >>> result.plot.cluster_assignments()
-        """
-        assignments = self._result.cluster_assignments
-
-        fig = px.imshow(
-            [assignments],
-            labels={"x": "Original Period", "color": "Cluster"},
-            title=title,
-            color_continuous_scale=color_continuous_scale,
-            aspect="auto",
-        )
-        fig.update_layout(
-            yaxis={"visible": False},
-            coloraxis_colorbar={"dtick": 1},
-        )
 
         return fig
 
@@ -741,38 +499,6 @@ class ResultPlotAccessor:
         fig.update_layout(showlegend=False, yaxis_title="Duration (timesteps)")
 
         return fig
-
-    def time_slice(
-        self,
-        start: str,
-        end: str,
-        columns: list[str] | None = None,
-        title: str | None = None,
-    ) -> go.Figure:
-        """Plot a time slice of the reconstructed data.
-
-        Parameters
-        ----------
-        start : str
-            Start date/time.
-        end : str
-            End date/time.
-        columns : list[str], optional
-            Columns to plot.
-        title : str, optional
-            Plot title.
-
-        Returns
-        -------
-        go.Figure
-        """
-        return time_slice(
-            self._result.reconstructed,
-            start,
-            end,
-            columns=columns,
-            title=title,
-        )
 
     def compare(
         self,
