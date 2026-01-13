@@ -23,6 +23,7 @@ Install with: pip install tsam[plot]
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -38,6 +39,74 @@ except ImportError as e:
 
 if TYPE_CHECKING:
     from tsam.result import AggregationResult
+
+
+def _validate_columns(
+    requested: list[str] | None,
+    available: list[str],
+    context: str = "data",
+) -> list[str]:
+    """Validate and filter column names, warning about invalid ones.
+
+    Parameters
+    ----------
+    requested : list[str] | None
+        Columns requested by user. If None, returns all available.
+    available : list[str]
+        Columns available in the data.
+    context : str
+        Description for error messages (e.g., "original data").
+
+    Returns
+    -------
+    list[str]
+        Valid columns to use.
+
+    Raises
+    ------
+    ValueError
+        If no valid columns remain after filtering.
+    """
+    if requested is None:
+        return available
+
+    valid = [c for c in requested if c in available]
+    invalid = [c for c in requested if c not in available]
+
+    if invalid:
+        warnings.warn(
+            f"Columns not found in {context} and will be ignored: {invalid}. "
+            f"Available columns: {available}",
+            UserWarning,
+            stacklevel=3,
+        )
+
+    if not valid:
+        raise ValueError(
+            f"None of the requested columns {requested} exist in {context}. "
+            f"Available columns: {available}"
+        )
+
+    return valid
+
+
+def _validate_not_empty(df: pd.DataFrame, context: str = "data") -> None:
+    """Raise ValueError if DataFrame is empty.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame to check.
+    context : str
+        Description for error message.
+
+    Raises
+    ------
+    ValueError
+        If DataFrame is empty.
+    """
+    if df.empty:
+        raise ValueError(f"No data to plot: {context} is empty")
 
 
 def _compare_dataframes(
@@ -150,11 +219,10 @@ class ResultPlotAccessor:
         typ = self._result.cluster_representatives
         weights = self._result.cluster_weights
 
-        all_columns = [c for c in typ.columns if c not in ["cluster", "timestep"]]
-        if columns is None:
-            columns = all_columns
-        else:
-            columns = [c for c in columns if c in all_columns]
+        available_columns = [c for c in typ.columns if c not in ["cluster", "timestep"]]
+        columns = _validate_columns(
+            columns, available_columns, "cluster_representatives"
+        )
 
         # Reset index to get period/timestep as columns
         df = typ[columns].reset_index()
@@ -277,6 +345,15 @@ class ResultPlotAccessor:
         # segment_durations is tuple[tuple[int, ...], ...] - one tuple per period
         # Average durations across all typical periods for the bar chart
         durations = self._result.segment_durations
+
+        # Validate uniform structure across periods
+        segment_counts = {len(period) for period in durations}
+        if len(segment_counts) != 1:
+            raise ValueError(
+                f"Inconsistent segment counts across periods: {segment_counts}. "
+                "Cannot compute average durations."
+            )
+
         n_segments = len(durations[0])
         avg_durations = [
             sum(period[s] for period in durations) / len(durations)
@@ -344,12 +421,12 @@ class ResultPlotAccessor:
         orig = self._result.original
         recon = self._result.reconstructed
 
-        if columns is None:
-            columns = list(orig.columns)
+        columns = _validate_columns(columns, list(orig.columns), "original data")
 
         if start is not None and end is not None:
             orig = orig.loc[start:end]  # type: ignore[misc]
             recon = recon.loc[start:end]  # type: ignore[misc]
+            _validate_not_empty(orig, f"original data for range {start} to {end}")
 
         if mode == "duration_curve":
             return _compare_dataframes(
@@ -441,11 +518,11 @@ class ResultPlotAccessor:
         >>> result.plot.residuals(mode="by_timestep")  # Error pattern within day
         """
         resid = self._result.residuals
-        if columns is None:
-            columns = list(resid.columns)
+        columns = _validate_columns(columns, list(resid.columns), "residuals")
 
         if start is not None and end is not None:
             resid = resid.loc[start:end]  # type: ignore[misc]
+            _validate_not_empty(resid, f"residuals for range {start} to {end}")
 
         if mode == "time_series":
             df_plot = resid[columns].copy()
