@@ -487,17 +487,16 @@ class ResultPlotAccessor:
     def duration_curve(
         self,
         columns: list[str] | None = None,
-        compare_original: bool = False,
         title: str | None = None,
     ) -> go.Figure:
-        """Plot duration curves.
+        """Plot duration curves of reconstructed data.
+
+        For comparing original vs reconstructed, use ``result.plot.compare(mode="duration_curve")``.
 
         Parameters
         ----------
         columns : list[str], optional
             Columns to plot.
-        compare_original : bool, default False
-            If True and original data available, show comparison.
         title : str, optional
             Plot title.
 
@@ -505,28 +504,11 @@ class ResultPlotAccessor:
         -------
         go.Figure
         """
-        reconstructed = self._result.reconstruct()
-
-        if compare_original and self._original is not None:
-            # Use compare function for side-by-side comparison
-            if columns is not None:
-                col = columns[0]
-            elif len(reconstructed.columns) > 0:
-                col = reconstructed.columns[0]
-            else:
-                raise ValueError("No columns available to plot")
-            return compare(
-                {"Original": self._original, "Reconstructed": reconstructed},
-                column=col,
-                plot_type="duration_curve",
-                title=title or "Duration Curve Comparison",
-            )
-        else:
-            return duration_curve(
-                reconstructed,
-                columns=columns,
-                title=title or "Duration Curve",
-            )
+        return duration_curve(
+            self._result.reconstructed,
+            columns=columns,
+            title=title or "Duration Curve",
+        )
 
     def cluster_representatives(
         self,
@@ -773,10 +755,9 @@ class ResultPlotAccessor:
         start: str,
         end: str,
         columns: list[str] | None = None,
-        compare_original: bool = False,
         title: str | None = None,
     ) -> go.Figure:
-        """Plot a time slice comparison.
+        """Plot a time slice of the reconstructed data.
 
         Parameters
         ----------
@@ -786,8 +767,6 @@ class ResultPlotAccessor:
             End date/time.
         columns : list[str], optional
             Columns to plot.
-        compare_original : bool, default False
-            If True and original available, show comparison.
         title : str, optional
             Plot title.
 
@@ -795,28 +774,265 @@ class ResultPlotAccessor:
         -------
         go.Figure
         """
-        reconstructed = self._result.reconstruct()
+        return time_slice(
+            self._result.reconstructed,
+            start,
+            end,
+            columns=columns,
+            title=title,
+        )
 
-        if compare_original and self._original is not None:
-            if columns is not None:
-                col = columns[0]
-            elif len(reconstructed.columns) > 0:
-                col = reconstructed.columns[0]
-            else:
-                raise ValueError("No columns available to plot")
+    def compare(
+        self,
+        columns: list[str] | None = None,
+        mode: str = "overlay",
+        start: str | None = None,
+        end: str | None = None,
+        title: str | None = None,
+    ) -> go.Figure:
+        """Compare original vs reconstructed time series.
+
+        Parameters
+        ----------
+        columns : list[str], optional
+            Columns to compare. If None, uses first column.
+        mode : str, default "overlay"
+            Comparison mode:
+            - "overlay": Both series on same axes
+            - "side_by_side": Separate subplots
+            - "duration_curve": Compare sorted values
+        start : str, optional
+            Start time for time slice (overlay/side_by_side modes).
+        end : str, optional
+            End time for time slice.
+        title : str, optional
+            Plot title.
+
+        Returns
+        -------
+        go.Figure
+
+        Examples
+        --------
+        >>> result.plot.compare()  # Quick overlay of first column
+        >>> result.plot.compare(mode="duration_curve")
+        >>> result.plot.compare(start="2010-02-01", end="2010-02-07")
+        """
+        orig = self._result.original
+        recon = self._result.reconstructed
+
+        if columns is None:
+            columns = [orig.columns[0]]
+
+        if start is not None and end is not None:
+            orig = orig.loc[start:end]  # type: ignore[misc]
+            recon = recon.loc[start:end]  # type: ignore[misc]
+
+        if mode == "duration_curve":
             return compare(
-                {"Original": self._original, "Reconstructed": reconstructed},
-                column=col,
-                plot_type="time_slice",
-                start=start,
-                end=end,
-                title=title,
+                {"Original": orig, "Reconstructed": recon},
+                column=columns[0],
+                plot_type="duration_curve",
+                title=title or f"Duration Curve Comparison - {columns[0]}",
             )
+
+        elif mode == "overlay":
+            records = []
+            for col in columns:
+                for idx, val in orig[col].items():
+                    records.append(
+                        {
+                            "Time": idx,
+                            "Value": val,
+                            "Series": f"{col} (Original)",
+                            "Column": col,
+                        }
+                    )
+                for idx, val in recon[col].items():
+                    records.append(
+                        {
+                            "Time": idx,
+                            "Value": val,
+                            "Series": f"{col} (Reconstructed)",
+                            "Column": col,
+                        }
+                    )
+
+            long_df = pd.DataFrame(records)
+            fig = px.line(
+                long_df,
+                x="Time",
+                y="Value",
+                color="Series",
+                facet_row="Column" if len(columns) > 1 else None,
+                title=title or "Original vs Reconstructed",
+            )
+            return fig
+
+        elif mode == "side_by_side":
+            fig = make_subplots(
+                rows=2,
+                cols=1,
+                subplot_titles=["Original", "Reconstructed"],
+                shared_xaxes=True,
+            )
+
+            for col in columns:
+                fig.add_trace(
+                    go.Scatter(
+                        x=orig.index,
+                        y=orig[col],
+                        name=f"{col} (Orig)",
+                        mode="lines",
+                    ),
+                    row=1,
+                    col=1,
+                )
+                fig.add_trace(
+                    go.Scatter(
+                        x=recon.index,
+                        y=recon[col],
+                        name=f"{col} (Recon)",
+                        mode="lines",
+                    ),
+                    row=2,
+                    col=1,
+                )
+
+            fig.update_layout(title=title or "Original vs Reconstructed", height=600)
+            return fig
+
         else:
-            return time_slice(
-                reconstructed,
-                start,
-                end,
-                columns=columns,
-                title=title,
+            raise ValueError(
+                f"Unknown mode: {mode}. Use 'overlay', 'side_by_side', or 'duration_curve'."
+            )
+
+    def residuals(
+        self,
+        columns: list[str] | None = None,
+        mode: str = "time_series",
+        start: str | None = None,
+        end: str | None = None,
+        title: str | None = None,
+    ) -> go.Figure:
+        """Plot residuals (original - reconstructed).
+
+        Parameters
+        ----------
+        columns : list[str], optional
+            Columns to plot. If None, plots all.
+        mode : str, default "time_series"
+            Display mode:
+            - "time_series": Residuals over time
+            - "histogram": Distribution of residuals
+            - "by_period": Mean absolute error per period (bar chart)
+            - "by_timestep": Mean absolute error by timestep within period
+        start : str, optional
+            Start time for time slice (time_series mode only).
+        end : str, optional
+            End time for time slice.
+        title : str, optional
+            Plot title.
+
+        Returns
+        -------
+        go.Figure
+
+        Examples
+        --------
+        >>> result.plot.residuals()  # Time series of residuals
+        >>> result.plot.residuals(mode="histogram")  # Error distribution
+        >>> result.plot.residuals(mode="by_period")  # Which periods have highest error
+        >>> result.plot.residuals(mode="by_timestep")  # Error pattern within day
+        """
+        resid = self._result.residuals
+        if columns is None:
+            columns = list(resid.columns)
+
+        if start is not None and end is not None:
+            resid = resid.loc[start:end]  # type: ignore[misc]
+
+        if mode == "time_series":
+            df_plot = resid[columns].copy()
+            df_plot.index.name = "Time"
+            long_df = df_plot.reset_index().melt(
+                id_vars=["Time"],
+                var_name="Column",
+                value_name="Residual",
+            )
+            fig = px.line(
+                long_df,
+                x="Time",
+                y="Residual",
+                color="Column",
+                title=title or "Residuals Over Time",
+            )
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            return fig
+
+        elif mode == "histogram":
+            long_df = resid[columns].melt(var_name="Column", value_name="Residual")
+            fig = px.histogram(
+                long_df,
+                x="Residual",
+                color="Column",
+                barmode="overlay",
+                opacity=0.7,
+                title=title or "Residual Distribution",
+            )
+            fig.add_vline(x=0, line_dash="dash", line_color="red")
+            return fig
+
+        elif mode == "by_period":
+            n_timesteps = self._result.n_timesteps_per_period
+            full_resid = self._result.residuals[columns]
+            n_periods = len(full_resid) // n_timesteps
+
+            period_metrics = []
+            for p in range(n_periods):
+                start_idx = p * n_timesteps
+                end_idx = start_idx + n_timesteps
+                period_resid = full_resid.iloc[start_idx:end_idx]
+
+                for col in columns:
+                    mae = period_resid[col].abs().mean()
+                    period_metrics.append({"Period": p, "Column": col, "MAE": mae})
+
+            df = pd.DataFrame(period_metrics)
+            fig = px.bar(
+                df,
+                x="Period",
+                y="MAE",
+                color="Column",
+                barmode="group",
+                title=title or "Mean Absolute Error by Period",
+            )
+            return fig
+
+        elif mode == "by_timestep":
+            n_timesteps = self._result.n_timesteps_per_period
+            full_resid = self._result.residuals[columns]
+            n_periods = len(full_resid) // n_timesteps
+
+            timestep_errors = []
+            for t in range(n_timesteps):
+                indices = [p * n_timesteps + t for p in range(n_periods)]
+                timestep_resid = full_resid.iloc[indices]
+                for col in columns:
+                    mae = timestep_resid[col].abs().mean()
+                    timestep_errors.append({"Timestep": t, "Column": col, "MAE": mae})
+
+            df = pd.DataFrame(timestep_errors)
+            fig = px.line(
+                df,
+                x="Timestep",
+                y="MAE",
+                color="Column",
+                title=title or "Mean Absolute Error by Timestep",
+            )
+            return fig
+
+        else:
+            raise ValueError(
+                f"Unknown mode: {mode}. Use 'time_series', 'histogram', 'by_period', or 'by_timestep'."
             )
