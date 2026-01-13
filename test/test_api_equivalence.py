@@ -426,8 +426,8 @@ class TestTuningEquivalence:
             show_progress=False,
         )
 
-        # Both should have decreasing RMSE
-        new_rmse_history = [r.optimal_rmse for r in new_results]
+        # Get RMSE history from summary
+        new_rmse_history = new_results.summary["rmse"].tolist()
 
         # RMSE should be monotonically decreasing (or equal)
         for i in range(1, len(new_rmse_history)):
