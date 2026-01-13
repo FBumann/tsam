@@ -359,6 +359,7 @@ def compare(
             x="Hour",
             y="Value",
             color="Method",
+            line_dash="Method",
             title=title or f"Duration Curve Comparison - {column}",
         )
 
@@ -384,6 +385,7 @@ def compare(
             x="Time",
             y="Value",
             color="Method",
+            line_dash="Method",
             title=title or f"Time Slice Comparison - {column}",
         )
 
@@ -842,27 +844,16 @@ class ResultPlotAccessor:
             )
 
             if mode == "overlay":
-                # Combine Source and Column for color when multiple columns
-                if len(columns) > 1:
-                    long_df["Series"] = (
-                        long_df["Column"] + " (" + long_df["Source"] + ")"
-                    )
-                    fig = px.line(
-                        long_df,
-                        x="Time",
-                        y="Value",
-                        color="Series",
-                        facet_row="Column",
-                        title=title or "Original vs Reconstructed",
-                    )
-                else:
-                    fig = px.line(
-                        long_df,
-                        x="Time",
-                        y="Value",
-                        color="Source",
-                        title=title or "Original vs Reconstructed",
-                    )
+                # Color by Column, dash by Source (Original/Reconstructed)
+                fig = px.line(
+                    long_df,
+                    x="Time",
+                    y="Value",
+                    color="Column",
+                    line_dash="Source",
+                    facet_row="Column" if len(columns) > 1 else None,
+                    title=title or "Original vs Reconstructed",
+                )
             else:  # side_by_side
                 fig = px.line(
                     long_df,
