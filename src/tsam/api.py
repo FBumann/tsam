@@ -534,6 +534,20 @@ def unstack_to_periods(
     ...     title="Load Heatmap"
     ... )
     """
-    period_hours = int(_parse_duration_hours(period_duration, "period_duration"))
-    unstacked, _ = unstackToPeriods(data.copy(), period_hours)
+    period_hours = _parse_duration_hours(period_duration, "period_duration")
+
+    # Infer timestep resolution from data index
+    timestep_hours = 1.0  # Default to hourly
+    if isinstance(data.index, pd.DatetimeIndex) and len(data.index) > 1:
+        timestep_hours = (data.index[1] - data.index[0]).total_seconds() / 3600
+
+    # Calculate timesteps per period
+    timesteps_per_period = round(period_hours / timestep_hours)
+    if timesteps_per_period < 1:
+        raise ValueError(
+            f"period_duration ({period_hours}h) is smaller than "
+            f"data timestep resolution ({timestep_hours}h)"
+        )
+
+    unstacked, _ = unstackToPeriods(data.copy(), timesteps_per_period)
     return cast("pd.DataFrame", unstacked)

@@ -474,10 +474,10 @@ class ResultPlotAccessor:
 
         elif mode == "by_period":
             n_timesteps = self._result.n_timesteps_per_period
-            full_resid = self._result.residuals[columns].abs().copy()
-            full_resid["Period"] = np.arange(len(full_resid)) // n_timesteps
+            abs_resid = resid[columns].abs().copy()
+            abs_resid["Period"] = np.arange(len(abs_resid)) // n_timesteps
 
-            df = full_resid.groupby("Period")[columns].mean().reset_index()
+            df = abs_resid.groupby("Period")[columns].mean().reset_index()
             long_df = df.melt(id_vars="Period", var_name="Column", value_name="MAE")
 
             fig = px.bar(
@@ -492,10 +492,10 @@ class ResultPlotAccessor:
 
         elif mode == "by_timestep":
             n_timesteps = self._result.n_timesteps_per_period
-            full_resid = self._result.residuals[columns].abs().copy()
-            full_resid["Timestep"] = np.arange(len(full_resid)) % n_timesteps
+            abs_resid = resid[columns].abs().copy()
+            abs_resid["Timestep"] = np.arange(len(abs_resid)) % n_timesteps
 
-            df = full_resid.groupby("Timestep")[columns].mean().reset_index()
+            df = abs_resid.groupby("Timestep")[columns].mean().reset_index()
             long_df = df.melt(id_vars="Timestep", var_name="Column", value_name="MAE")
 
             fig = px.line(

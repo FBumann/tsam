@@ -261,7 +261,17 @@ class TuningResult:
     def find_by_timesteps(self, target: int) -> AggregationResult:
         """Find the result closest to a target timestep count."""
         if not self.all_results:
-            raise ValueError("No results available (all_results is empty)")
+            raise ValueError(
+                "No results available. Use save_all_results=True in "
+                "find_optimal_combination() or use find_pareto_front() instead."
+            )
+
+        if len(self.all_results) != len(self.history):
+            raise ValueError(
+                f"Results/history mismatch: {len(self.all_results)} results vs "
+                f"{len(self.history)} history entries. This may indicate "
+                "save_all_results was not enabled."
+            )
 
         best_idx = 0
         best_diff = float("inf")
@@ -277,16 +287,34 @@ class TuningResult:
     def find_by_rmse(self, threshold: float) -> AggregationResult:
         """Find the smallest configuration that achieves a target RMSE."""
         if not self.all_results:
-            raise ValueError("No results available (all_results is empty)")
+            raise ValueError(
+                "No results available. Use save_all_results=True in "
+                "find_optimal_combination() or use find_pareto_front() instead."
+            )
 
+        if len(self.all_results) != len(self.history):
+            raise ValueError(
+                f"Results/history mismatch: {len(self.all_results)} results vs "
+                f"{len(self.history)} history entries. This may indicate "
+                "save_all_results was not enabled."
+            )
+
+        # Find all configurations meeting the threshold
+        candidates: list[tuple[int, int]] = []  # (timesteps, index)
         for i, h in enumerate(self.history):
             if h["rmse"] <= threshold:
-                return self.all_results[i]
+                timesteps = h.get("timesteps", h["n_clusters"] * h["n_segments"])
+                candidates.append((timesteps, i))
 
-        raise ValueError(
-            f"No configuration achieves RMSE <= {threshold}. "
-            f"Best available: {min(h['rmse'] for h in self.history):.4f}"
-        )
+        if not candidates:
+            raise ValueError(
+                f"No configuration achieves RMSE <= {threshold}. "
+                f"Best available: {min(h['rmse'] for h in self.history):.4f}"
+            )
+
+        # Return the smallest configuration (by timesteps)
+        candidates.sort(key=lambda x: x[0])
+        return self.all_results[candidates[0][1]]
 
     def plot(self, show_labels: bool = True, **kwargs: object) -> object:
         """Plot results (RMSE vs timesteps)."""
