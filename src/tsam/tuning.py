@@ -218,11 +218,11 @@ class TuningResult:
 
     Attributes
     ----------
-    optimal_n_clusters : int
+    n_clusters : int
         Optimal number of typical periods.
-    optimal_n_segments : int
+    n_segments : int
         Optimal number of segments per period.
-    optimal_rmse : float
+    rmse : float
         RMSE of the optimal configuration.
     history : list[dict]
         History of all tested configurations with their RMSE values.
@@ -243,9 +243,9 @@ class TuningResult:
     ...     print(agg_result.accuracy.rmse.mean())
     """
 
-    optimal_n_clusters: int
-    optimal_n_segments: int
-    optimal_rmse: float
+    n_clusters: int
+    n_segments: int
+    rmse: float
     history: list[dict]
     best_result: AggregationResult
     all_results: list[AggregationResult] = field(default_factory=list)
@@ -470,8 +470,8 @@ def find_optimal_combination(
     Examples
     --------
     >>> result = find_optimal_combination(df, data_reduction=0.01)
-    >>> print(f"Optimal: {result.optimal_n_clusters} periods, "
-    ...       f"{result.optimal_n_segments} segments")
+    >>> print(f"Optimal: {result.n_clusters} periods, "
+    ...       f"{result.n_segments} segments")
 
     >>> # Use all CPUs for faster search (file-based, no DataFrame pickling)
     >>> result = find_optimal_combination(df, data_reduction=0.01, n_jobs=-1)
@@ -560,9 +560,9 @@ def find_optimal_combination(
         raise ValueError("No valid configuration found")
 
     return TuningResult(
-        optimal_n_clusters=best_periods,
-        optimal_n_segments=best_segments,
-        optimal_rmse=best_rmse,
+        n_clusters=best_periods,
+        n_segments=best_segments,
+        rmse=best_rmse,
         history=history,
         best_result=best_result,
         all_results=all_results,
@@ -786,9 +786,9 @@ def _find_pareto_front_targeted(
         raise ValueError("No valid configuration found")
 
     return TuningResult(
-        optimal_n_clusters=best_n_clusters,
-        optimal_n_segments=best_n_segments,
-        optimal_rmse=best_rmse,
+        n_clusters=best_n_clusters,
+        n_segments=best_n_segments,
+        rmse=best_rmse,
         history=history,
         best_result=best_result,
         all_results=all_results,
@@ -940,9 +940,9 @@ def _find_pareto_front_steepest(
         raise ValueError("No valid configuration found")
 
     return TuningResult(
-        optimal_n_clusters=best_n_clusters,
-        optimal_n_segments=best_n_segments,
-        optimal_rmse=best_rmse,
+        n_clusters=best_n_clusters,
+        n_segments=best_n_segments,
+        rmse=best_rmse,
         history=history,
         best_result=best_result,
         all_results=all_results,
