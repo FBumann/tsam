@@ -1,24 +1,21 @@
-"""Plotting utilities for tsam using Plotly Express.
+"""Plotting accessor for tsam aggregation results.
 
-This module provides interactive visualizations for time series aggregation results.
-Uses Plotly Express for clean, declarative plotting with automatic faceting and colors.
+Provides convenient plotting methods directly on the result object for
+validation and visualization of aggregation quality.
 
-Two usage patterns are supported:
+Usage:
+    >>> result = tsam.aggregate(df, n_clusters=8)
+    >>> result.plot.compare()  # Compare original vs reconstructed
+    >>> result.plot.residuals()  # View reconstruction errors
+    >>> result.plot.cluster_representatives()
+    >>> result.plot.cluster_weights()
+    >>> result.plot.accuracy()
 
-1. Module-level functions for exploring raw data:
-   >>> import tsam
-   >>> tsam.plot.heatmap(df, column="Load")
-   >>> tsam.plot.duration_curve(df)
-   >>> tsam.plot.time_slice(df, start="2010-02-01", end="2010-02-07")
-   >>> tsam.plot.compare({"Method1": df1, "Method2": df2}, column="Load")
-
-2. Accessor pattern on results for validation and visualization:
-   >>> result = tsam.aggregate(df, n_clusters=8)
-   >>> result.plot.compare()  # Compare original vs reconstructed
-   >>> result.plot.residuals()  # View reconstruction errors
-   >>> result.plot.cluster_representatives()
-   >>> result.plot.cluster_weights()
-   >>> result.plot.accuracy()
+For exploring raw data before aggregation, use plotly directly with
+``tsam.unstack_to_periods()`` to reshape data for heatmaps:
+    >>> import plotly.express as px
+    >>> unstacked = tsam.unstack_to_periods(df, period_duration=24)
+    >>> px.imshow(unstacked["Load"].values.T)
 
 Note: This module requires the 'plotly' optional dependency.
 Install with: pip install tsam[plot]
@@ -43,171 +40,7 @@ if TYPE_CHECKING:
     from tsam.result import AggregationResult
 
 
-def heatmap(
-    data: pd.DataFrame,
-    column: str | None = None,
-    period_duration: int | float | str = 24,
-    title: str | None = None,
-    color_continuous_scale: str = "Viridis",
-) -> go.Figure:
-    """Create a heatmap of time series data organized by periods.
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        Time series data to plot.
-    column : str, optional
-        Column to plot. If None, uses the first column.
-    period_duration : int, float, or str, default 24
-        Length of each period. Accepts:
-        - int/float: hours (e.g., 24 for daily, 168 for weekly)
-        - str: pandas Timedelta string (e.g., '24h', '1d', '1w')
-    title : str, optional
-        Plot title.
-    color_continuous_scale : str, default "Viridis"
-        Plotly color scale name.
-
-    Returns
-    -------
-    go.Figure
-        Plotly figure object.
-
-    Examples
-    --------
-    >>> import tsam
-    >>> tsam.plot.heatmap(df, column="Temperature", period_duration=24)
-    """
-    from tsam.api import _parse_duration_hours
-    from tsam.timeseriesaggregation import unstackToPeriods
-
-    if column is None:
-        column = data.columns[0]
-
-    period_duration = int(_parse_duration_hours(period_duration, "period_duration"))
-    stacked, _ = unstackToPeriods(data[[column]].copy(), period_duration)
-
-    fig = px.imshow(
-        stacked[column].values.T,
-        labels={"x": "Period (Day)", "y": "Timestep (Hour)", "color": column},
-        title=title or f"{column} Heatmap",
-        color_continuous_scale=color_continuous_scale,
-        aspect="auto",
-    )
-
-    return fig
-
-
-def duration_curve(
-    data: pd.DataFrame,
-    columns: list[str] | None = None,
-    title: str = "Duration Curve",
-) -> go.Figure:
-    """Plot duration curves (sorted descending values).
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        Time series data to plot.
-    columns : list[str], optional
-        Columns to plot. If None, plots all.
-    title : str, default "Duration Curve"
-        Plot title.
-
-    Returns
-    -------
-    go.Figure
-        Plotly figure object.
-
-    Examples
-    --------
-    >>> import tsam
-    >>> tsam.plot.duration_curve(df, columns=["Load", "GHI"])
-    """
-    if columns is None:
-        columns = list(data.columns)
-
-    # Build long-form data with sorted values using vectorized operations
-    frames = []
-    for col in columns:
-        sorted_vals = data[col].sort_values(ascending=False).reset_index(drop=True)
-        df_col = pd.DataFrame(
-            {
-                "Hour": range(len(sorted_vals)),
-                "Value": sorted_vals.values,
-                "Column": col,
-            }
-        )
-        frames.append(df_col)
-    long_df = pd.concat(frames, ignore_index=True)
-
-    fig = px.line(
-        long_df,
-        x="Hour",
-        y="Value",
-        color="Column",
-        title=title,
-    )
-
-    return fig
-
-
-def time_slice(
-    data: pd.DataFrame,
-    start: str,
-    end: str,
-    columns: list[str] | None = None,
-    title: str | None = None,
-) -> go.Figure:
-    """Plot a time slice of the data.
-
-    Parameters
-    ----------
-    data : pd.DataFrame
-        Time series data with datetime index.
-    start : str
-        Start date/time string.
-    end : str
-        End date/time string.
-    columns : list[str], optional
-        Columns to plot. If None, plots all.
-    title : str, optional
-        Plot title.
-
-    Returns
-    -------
-    go.Figure
-        Plotly figure object.
-
-    Examples
-    --------
-    >>> import tsam
-    >>> tsam.plot.time_slice(df, start="20100210", end="20100218", columns=["Load"])
-    """
-    sliced = data.loc[start:end]  # type: ignore[misc]
-
-    if columns is None:
-        columns = list(sliced.columns)
-
-    sliced_subset = sliced[columns].copy()
-    sliced_subset = sliced_subset.reset_index()
-    sliced_subset.columns = pd.Index(["Time", *columns])
-
-    long_df = sliced_subset.melt(
-        id_vars=["Time"], var_name="Column", value_name="Value"
-    )
-
-    fig = px.line(
-        long_df,
-        x="Time",
-        y="Value",
-        color="Column",
-        title=title or f"Time Series: {start} to {end}",
-    )
-
-    return fig
-
-
-def compare(
+def _compare_dataframes(
     results: dict[str, pd.DataFrame],
     column: str,
     plot_type: str = "duration_curve",
@@ -215,40 +48,7 @@ def compare(
     end: str | None = None,
     title: str | None = None,
 ) -> go.Figure:
-    """Compare multiple DataFrames (e.g., from different aggregation methods).
-
-    Parameters
-    ----------
-    results : dict[str, pd.DataFrame]
-        Dictionary mapping names to DataFrames.
-        Example: {"Original": raw, "K-means": result1.reconstruct()}
-    column : str
-        Column to compare.
-    plot_type : str, default "duration_curve"
-        Type of plot: "duration_curve" or "time_slice".
-    start : str, optional
-        Start time (required for time_slice).
-    end : str, optional
-        End time (required for time_slice).
-    title : str, optional
-        Plot title.
-
-    Returns
-    -------
-    go.Figure
-        Plotly figure object.
-
-    Examples
-    --------
-    >>> import tsam
-    >>> result1 = tsam.aggregate(df, n_clusters=8, cluster=ClusterConfig(method="kmeans"))
-    >>> result2 = tsam.aggregate(df, n_clusters=8, cluster=ClusterConfig(method="hierarchical"))
-    >>> fig = tsam.plot.compare(
-    ...     {"Original": df, "K-means": result1.reconstruct(), "Hierarchical": result2.reconstruct()},
-    ...     column="Load",
-    ...     plot_type="duration_curve"
-    ... )
-    """
+    """Compare multiple DataFrames (internal helper)."""
     if plot_type == "duration_curve":
         frames = []
         for name, data in results.items():
@@ -547,7 +347,7 @@ class ResultPlotAccessor:
             recon = recon.loc[start:end]  # type: ignore[misc]
 
         if mode == "duration_curve":
-            return compare(
+            return _compare_dataframes(
                 {"Original": orig, "Reconstructed": recon},
                 column=columns[0],
                 plot_type="duration_curve",
