@@ -90,95 +90,35 @@ def _validate_columns(
     return valid
 
 
-def _validate_not_empty(df: pd.DataFrame, context: str = "data") -> None:
-    """Raise ValueError if DataFrame is empty.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        DataFrame to check.
-    context : str
-        Description for error message.
-
-    Raises
-    ------
-    ValueError
-        If DataFrame is empty.
-    """
-    if df.empty:
-        raise ValueError(f"No data to plot: {context} is empty")
-
-
-def _compare_dataframes(
+def _duration_curve_figure(
     results: dict[str, pd.DataFrame],
     columns: list[str],
-    plot_type: str = "duration_curve",
-    start: str | None = None,
-    end: str | None = None,
     title: str | None = None,
 ) -> go.Figure:
-    """Compare multiple DataFrames (internal helper)."""
-    if plot_type == "duration_curve":
-        frames = []
-        for name, data in results.items():
-            for col in columns:
-                sorted_vals = (
-                    data[col].sort_values(ascending=False).reset_index(drop=True)
+    """Create duration curve comparison figure (internal helper)."""
+    frames = []
+    for name, data in results.items():
+        for col in columns:
+            sorted_vals = data[col].sort_values(ascending=False).reset_index(drop=True)
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "Hour": range(len(sorted_vals)),
+                        "Value": sorted_vals.values,
+                        "Method": name,
+                        "Column": col,
+                    }
                 )
-                frames.append(
-                    pd.DataFrame(
-                        {
-                            "Hour": range(len(sorted_vals)),
-                            "Value": sorted_vals.values,
-                            "Method": name,
-                            "Column": col,
-                        }
-                    )
-                )
-        long_df = pd.concat(frames, ignore_index=True)
-        fig = px.line(
-            long_df,
-            x="Hour",
-            y="Value",
-            color="Column",
-            line_dash="Method",
-            title=title or "Duration Curve Comparison",
-        )
-
-    elif plot_type == "time_slice":
-        if start is None or end is None:
-            raise ValueError("start and end are required for time_slice plot")
-
-        frames = []
-        for name, data in results.items():
-            sliced = data.loc[start:end]  # type: ignore[misc]
-            for col in columns:
-                frames.append(
-                    pd.DataFrame(
-                        {
-                            "Time": sliced.index,
-                            "Value": sliced[col].values,
-                            "Method": name,
-                            "Column": col,
-                        }
-                    )
-                )
-        long_df = pd.concat(frames, ignore_index=True)
-        fig = px.line(
-            long_df,
-            x="Time",
-            y="Value",
-            color="Column",
-            line_dash="Method",
-            title=title or "Time Slice Comparison",
-        )
-
-    else:
-        raise ValueError(
-            f"Unknown plot_type: {plot_type}. Use 'duration_curve' or 'time_slice'."
-        )
-
-    return fig
+            )
+    long_df = pd.concat(frames, ignore_index=True)
+    return px.line(
+        long_df,
+        x="Hour",
+        y="Value",
+        color="Column",
+        line_dash="Method",
+        title=title or "Duration Curve Comparison",
+    )
 
 
 class ResultPlotAccessor:
@@ -385,8 +325,6 @@ class ResultPlotAccessor:
         self,
         columns: list[str] | None = None,
         mode: str = "overlay",
-        start: str | None = None,
-        end: str | None = None,
         title: str | None = None,
     ) -> go.Figure:
         """Compare original vs reconstructed time series.
@@ -400,10 +338,6 @@ class ResultPlotAccessor:
             - "overlay": Both series on same axes
             - "side_by_side": Separate subplots
             - "duration_curve": Compare sorted values
-        start : str, optional
-            Start time for time slice (overlay/side_by_side modes).
-        end : str, optional
-            End time for time slice.
         title : str, optional
             Plot title.
 
@@ -416,23 +350,16 @@ class ResultPlotAccessor:
         >>> result.plot.compare()  # Compare all columns
         >>> result.plot.compare(columns=["Load"])  # Compare specific column
         >>> result.plot.compare(mode="duration_curve")
-        >>> result.plot.compare(start="2010-02-01", end="2010-02-07")
         """
         orig = self._result.original
         recon = self._result.reconstructed
 
         columns = _validate_columns(columns, list(orig.columns), "original data")
 
-        if start is not None and end is not None:
-            orig = orig.loc[start:end]  # type: ignore[misc]
-            recon = recon.loc[start:end]  # type: ignore[misc]
-            _validate_not_empty(orig, f"original data for range {start} to {end}")
-
         if mode == "duration_curve":
-            return _compare_dataframes(
+            return _duration_curve_figure(
                 {"Original": orig, "Reconstructed": recon},
                 columns=columns,
-                plot_type="duration_curve",
                 title=title,
             )
 
@@ -483,8 +410,6 @@ class ResultPlotAccessor:
         self,
         columns: list[str] | None = None,
         mode: str = "time_series",
-        start: str | None = None,
-        end: str | None = None,
         title: str | None = None,
     ) -> go.Figure:
         """Plot residuals (original - reconstructed).
@@ -499,10 +424,6 @@ class ResultPlotAccessor:
             - "histogram": Distribution of residuals
             - "by_period": Mean absolute error per period (bar chart)
             - "by_timestep": Mean absolute error by timestep within period
-        start : str, optional
-            Start time for time slice (time_series mode only).
-        end : str, optional
-            End time for time slice.
         title : str, optional
             Plot title.
 
@@ -519,10 +440,6 @@ class ResultPlotAccessor:
         """
         resid = self._result.residuals
         columns = _validate_columns(columns, list(resid.columns), "residuals")
-
-        if start is not None and end is not None:
-            resid = resid.loc[start:end]  # type: ignore[misc]
-            _validate_not_empty(resid, f"residuals for range {start} to {end}")
 
         if mode == "time_series":
             df_plot = resid[columns].copy()
