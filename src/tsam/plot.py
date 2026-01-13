@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 
 try:
@@ -337,17 +338,22 @@ def compare(
     ...     plot_type="duration_curve"
     ... )
     """
-    records = []
-
     if plot_type == "duration_curve":
+        frames = []
         for name, data in results.items():
             sorted_vals = (
                 data[column].sort_values(ascending=False).reset_index(drop=True)
             )
-            for hour, val in enumerate(sorted_vals):
-                records.append({"Hour": hour, "Value": val, "Method": name})
-
-        long_df = pd.DataFrame(records)
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "Hour": range(len(sorted_vals)),
+                        "Value": sorted_vals.values,
+                        "Method": name,
+                    }
+                )
+            )
+        long_df = pd.concat(frames, ignore_index=True)
         fig = px.line(
             long_df,
             x="Hour",
@@ -360,12 +366,19 @@ def compare(
         if start is None or end is None:
             raise ValueError("start and end are required for time_slice plot")
 
+        frames = []
         for name, data in results.items():
             sliced = data.loc[start:end]  # type: ignore[misc]
-            for time, val in sliced[column].items():
-                records.append({"Time": time, "Value": val, "Method": name})
-
-        long_df = pd.DataFrame(records)
+            frames.append(
+                pd.DataFrame(
+                    {
+                        "Time": sliced.index,
+                        "Value": sliced[column].values,
+                        "Method": name,
+                    }
+                )
+            )
+        long_df = pd.concat(frames, ignore_index=True)
         fig = px.line(
             long_df,
             x="Time",
@@ -531,47 +544,24 @@ class ResultPlotAccessor:
         typ = self._result.cluster_representatives
         weights = self._result.cluster_weights
 
-        # Get column names (excluding index levels if they're columns)
         all_columns = [c for c in typ.columns if c not in ["cluster", "timestep"]]
         if columns is None:
             columns = all_columns
         else:
             columns = [c for c in columns if c in all_columns]
 
-        # Build long-form data
-        records = []
+        # Reset index to get period/timestep as columns
+        df = typ[columns].reset_index()
+        df.columns = pd.Index(["Period", "Timestep", *columns])
 
-        if isinstance(typ.index, pd.MultiIndex):
-            periods = typ.index.get_level_values(0).unique()
-            for period in periods:
-                period_data = typ.loc[period]
-                weight = weights.get(period, 1)
-                for timestep, row in period_data.iterrows():
-                    for col in columns:
-                        records.append(
-                            {
-                                "Timestep": timestep,
-                                "Value": row[col],
-                                "Column": col,
-                                "Period": f"Period {period} (n={weight})",
-                            }
-                        )
-        else:
-            for _, row in typ.iterrows():
-                period = row.get("period", 0)
-                timestep = row.get("timestep", 0)
-                weight = weights.get(period, 1)
-                for col in columns:
-                    records.append(
-                        {
-                            "Timestep": timestep,
-                            "Value": row[col],
-                            "Column": col,
-                            "Period": f"Period {period} (n={weight})",
-                        }
-                    )
+        # Map period IDs to labels with weights
+        df["Period"] = df["Period"].map(lambda p: f"Period {p} (n={weights.get(p, 1)})")
 
-        long_df = pd.DataFrame(records)
+        long_df = df.melt(
+            id_vars=["Period", "Timestep"],
+            var_name="Column",
+            value_name="Value",
+        )
 
         fig = px.line(
             long_df,
@@ -836,70 +826,54 @@ class ResultPlotAccessor:
                 title=title or f"Duration Curve Comparison - {columns[0]}",
             )
 
-        elif mode == "overlay":
-            records = []
-            for col in columns:
-                for idx, val in orig[col].items():
-                    records.append(
-                        {
-                            "Time": idx,
-                            "Value": val,
-                            "Series": f"{col} (Original)",
-                            "Column": col,
-                        }
-                    )
-                for idx, val in recon[col].items():
-                    records.append(
-                        {
-                            "Time": idx,
-                            "Value": val,
-                            "Series": f"{col} (Reconstructed)",
-                            "Column": col,
-                        }
-                    )
+        elif mode in ("overlay", "side_by_side"):
+            # Build long-form data with Source (Original/Reconstructed) and Column
+            orig_df = orig[columns].copy()
+            orig_df["Source"] = "Original"
+            recon_df = recon[columns].copy()
+            recon_df["Source"] = "Reconstructed"
 
-            long_df = pd.DataFrame(records)
-            fig = px.line(
-                long_df,
-                x="Time",
-                y="Value",
-                color="Series",
-                facet_row="Column" if len(columns) > 1 else None,
-                title=title or "Original vs Reconstructed",
-            )
-            return fig
-
-        elif mode == "side_by_side":
-            fig = make_subplots(
-                rows=2,
-                cols=1,
-                subplot_titles=["Original", "Reconstructed"],
-                shared_xaxes=True,
+            combined = pd.concat([orig_df, recon_df])
+            combined.index.name = "Time"
+            long_df = combined.reset_index().melt(
+                id_vars=["Time", "Source"],
+                var_name="Column",
+                value_name="Value",
             )
 
-            for col in columns:
-                fig.add_trace(
-                    go.Scatter(
-                        x=orig.index,
-                        y=orig[col],
-                        name=f"{col} (Orig)",
-                        mode="lines",
-                    ),
-                    row=1,
-                    col=1,
+            if mode == "overlay":
+                # Combine Source and Column for color when multiple columns
+                if len(columns) > 1:
+                    long_df["Series"] = (
+                        long_df["Column"] + " (" + long_df["Source"] + ")"
+                    )
+                    fig = px.line(
+                        long_df,
+                        x="Time",
+                        y="Value",
+                        color="Series",
+                        facet_row="Column",
+                        title=title or "Original vs Reconstructed",
+                    )
+                else:
+                    fig = px.line(
+                        long_df,
+                        x="Time",
+                        y="Value",
+                        color="Source",
+                        title=title or "Original vs Reconstructed",
+                    )
+            else:  # side_by_side
+                fig = px.line(
+                    long_df,
+                    x="Time",
+                    y="Value",
+                    color="Column",
+                    facet_row="Source",
+                    title=title or "Original vs Reconstructed",
                 )
-                fig.add_trace(
-                    go.Scatter(
-                        x=recon.index,
-                        y=recon[col],
-                        name=f"{col} (Recon)",
-                        mode="lines",
-                    ),
-                    row=2,
-                    col=1,
-                )
+                fig.update_layout(height=600)
 
-            fig.update_layout(title=title or "Original vs Reconstructed", height=600)
             return fig
 
         else:
@@ -985,22 +959,14 @@ class ResultPlotAccessor:
 
         elif mode == "by_period":
             n_timesteps = self._result.n_timesteps_per_period
-            full_resid = self._result.residuals[columns]
-            n_periods = len(full_resid) // n_timesteps
+            full_resid = self._result.residuals[columns].abs().copy()
+            full_resid["Period"] = np.arange(len(full_resid)) // n_timesteps
 
-            period_metrics = []
-            for p in range(n_periods):
-                start_idx = p * n_timesteps
-                end_idx = start_idx + n_timesteps
-                period_resid = full_resid.iloc[start_idx:end_idx]
+            df = full_resid.groupby("Period")[columns].mean().reset_index()
+            long_df = df.melt(id_vars="Period", var_name="Column", value_name="MAE")
 
-                for col in columns:
-                    mae = period_resid[col].abs().mean()
-                    period_metrics.append({"Period": p, "Column": col, "MAE": mae})
-
-            df = pd.DataFrame(period_metrics)
             fig = px.bar(
-                df,
+                long_df,
                 x="Period",
                 y="MAE",
                 color="Column",
@@ -1011,20 +977,14 @@ class ResultPlotAccessor:
 
         elif mode == "by_timestep":
             n_timesteps = self._result.n_timesteps_per_period
-            full_resid = self._result.residuals[columns]
-            n_periods = len(full_resid) // n_timesteps
+            full_resid = self._result.residuals[columns].abs().copy()
+            full_resid["Timestep"] = np.arange(len(full_resid)) % n_timesteps
 
-            timestep_errors = []
-            for t in range(n_timesteps):
-                indices = [p * n_timesteps + t for p in range(n_periods)]
-                timestep_resid = full_resid.iloc[indices]
-                for col in columns:
-                    mae = timestep_resid[col].abs().mean()
-                    timestep_errors.append({"Timestep": t, "Column": col, "MAE": mae})
+            df = full_resid.groupby("Timestep")[columns].mean().reset_index()
+            long_df = df.melt(id_vars="Timestep", var_name="Column", value_name="MAE")
 
-            df = pd.DataFrame(timestep_errors)
             fig = px.line(
-                df,
+                long_df,
                 x="Timestep",
                 y="MAE",
                 color="Column",
