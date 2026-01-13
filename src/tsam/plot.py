@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 
 def _compare_dataframes(
     results: dict[str, pd.DataFrame],
-    column: str,
+    columns: list[str],
     plot_type: str = "duration_curve",
     start: str | None = None,
     end: str | None = None,
@@ -52,26 +52,28 @@ def _compare_dataframes(
     if plot_type == "duration_curve":
         frames = []
         for name, data in results.items():
-            sorted_vals = (
-                data[column].sort_values(ascending=False).reset_index(drop=True)
-            )
-            frames.append(
-                pd.DataFrame(
-                    {
-                        "Hour": range(len(sorted_vals)),
-                        "Value": sorted_vals.values,
-                        "Method": name,
-                    }
+            for col in columns:
+                sorted_vals = (
+                    data[col].sort_values(ascending=False).reset_index(drop=True)
                 )
-            )
+                frames.append(
+                    pd.DataFrame(
+                        {
+                            "Hour": range(len(sorted_vals)),
+                            "Value": sorted_vals.values,
+                            "Method": name,
+                            "Column": col,
+                        }
+                    )
+                )
         long_df = pd.concat(frames, ignore_index=True)
         fig = px.line(
             long_df,
             x="Hour",
             y="Value",
-            color="Method",
+            color="Column",
             line_dash="Method",
-            title=title or f"Duration Curve Comparison - {column}",
+            title=title or "Duration Curve Comparison",
         )
 
     elif plot_type == "time_slice":
@@ -81,23 +83,25 @@ def _compare_dataframes(
         frames = []
         for name, data in results.items():
             sliced = data.loc[start:end]  # type: ignore[misc]
-            frames.append(
-                pd.DataFrame(
-                    {
-                        "Time": sliced.index,
-                        "Value": sliced[column].values,
-                        "Method": name,
-                    }
+            for col in columns:
+                frames.append(
+                    pd.DataFrame(
+                        {
+                            "Time": sliced.index,
+                            "Value": sliced[col].values,
+                            "Method": name,
+                            "Column": col,
+                        }
+                    )
                 )
-            )
         long_df = pd.concat(frames, ignore_index=True)
         fig = px.line(
             long_df,
             x="Time",
             y="Value",
-            color="Method",
+            color="Column",
             line_dash="Method",
-            title=title or f"Time Slice Comparison - {column}",
+            title=title or "Time Slice Comparison",
         )
 
     else:
@@ -313,7 +317,7 @@ class ResultPlotAccessor:
         Parameters
         ----------
         columns : list[str], optional
-            Columns to compare. If None, uses first column.
+            Columns to compare. If None, compares all columns.
         mode : str, default "overlay"
             Comparison mode:
             - "overlay": Both series on same axes
@@ -332,7 +336,8 @@ class ResultPlotAccessor:
 
         Examples
         --------
-        >>> result.plot.compare()  # Quick overlay of first column
+        >>> result.plot.compare()  # Compare all columns
+        >>> result.plot.compare(columns=["Load"])  # Compare specific column
         >>> result.plot.compare(mode="duration_curve")
         >>> result.plot.compare(start="2010-02-01", end="2010-02-07")
         """
@@ -340,7 +345,7 @@ class ResultPlotAccessor:
         recon = self._result.reconstructed
 
         if columns is None:
-            columns = [orig.columns[0]]
+            columns = list(orig.columns)
 
         if start is not None and end is not None:
             orig = orig.loc[start:end]  # type: ignore[misc]
@@ -349,9 +354,9 @@ class ResultPlotAccessor:
         if mode == "duration_curve":
             return _compare_dataframes(
                 {"Original": orig, "Reconstructed": recon},
-                column=columns[0],
+                columns=columns,
                 plot_type="duration_curve",
-                title=title or f"Duration Curve Comparison - {columns[0]}",
+                title=title,
             )
 
         elif mode in ("overlay", "side_by_side"):
@@ -377,7 +382,6 @@ class ResultPlotAccessor:
                     y="Value",
                     color="Column",
                     line_dash="Source",
-                    facet_row="Column" if len(columns) > 1 else None,
                     title=title or "Original vs Reconstructed",
                 )
             else:  # side_by_side
