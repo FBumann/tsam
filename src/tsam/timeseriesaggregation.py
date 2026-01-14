@@ -39,7 +39,15 @@ def unstackToPeriods(timeSeries, timeStepsPerPeriod):
                 candidate period
               - **timeIndex** (pandas Series index) -- is the modification of the original
                 timeseriesindex in case an integer multiple was created
+
+    .. deprecated::
+        Use :func:`tsam.unstack_to_periods` instead.
     """
+    warnings.warn(
+        "unstackToPeriods is deprecated. Use tsam.unstack_to_periods() instead.",
+        LegacyAPIWarning,
+        stacklevel=2,
+    )
     # init new grouped timeindex
     unstackedTimeSeries = timeSeries.copy()
 
@@ -636,9 +644,11 @@ class TimeSeriesAggregation:
                 self.normalizedTimeSeries[column] * self.weightDict[column]
             )
 
-        self.normalizedPeriodlyProfiles, self.timeIndex = unstackToPeriods(
-            self.normalizedTimeSeries, self.timeStepsPerPeriod
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", LegacyAPIWarning)
+            self.normalizedPeriodlyProfiles, self.timeIndex = unstackToPeriods(
+                self.normalizedTimeSeries, self.timeStepsPerPeriod
+            )
 
         # check if no NaN is in the resulting profiles
         if self.normalizedPeriodlyProfiles.isnull().values.any():

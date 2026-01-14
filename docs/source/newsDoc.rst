@@ -86,7 +86,13 @@ Deprecations
 
 * **TimeSeriesAggregation class**: The legacy class-based API now emits a ``LegacyAPIWarning`` when instantiated. It will be removed in a future version. Users should migrate to the new ``tsam.aggregate()`` function.
 
-* To suppress the warning during migration::
+* **unstackToPeriods function**: Deprecated in favor of ``tsam.unstack_to_periods()``.
+
+* **HyperTunedAggregations class**: The legacy hyperparameter tuning class in ``tsam.hyperparametertuning`` is deprecated. Use ``tsam.tuning.find_optimal_combination()`` or ``tsam.tuning.find_pareto_front()`` instead.
+
+* **getNoPeriodsForDataReduction / getNoSegmentsForDataReduction**: Helper functions deprecated along with ``HyperTunedAggregations``.
+
+* To suppress warnings during migration::
 
     import warnings
     from tsam import LegacyAPIWarning

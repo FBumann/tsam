@@ -553,5 +553,7 @@ def unstack_to_periods(
             f"data timestep resolution ({timestep_hours}h)"
         )
 
-    unstacked, _ = unstackToPeriods(data.copy(), timesteps_per_period)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LegacyAPIWarning)
+        unstacked, _ = unstackToPeriods(data.copy(), timesteps_per_period)
     return cast("pd.DataFrame", unstacked)
