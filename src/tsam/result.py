@@ -286,12 +286,15 @@ class AggregationResult:
     def period_index(self) -> list[int]:
         """Get the period (cluster) indices.
 
+        Returns the actual cluster IDs from the cluster_representatives
+        DataFrame, which is the authoritative source.
+
         Returns
         -------
         list[int]
-            List of indices [0, 1, ..., n_clusters-1].
+            Sorted list of cluster indices present in cluster_representatives.
         """
-        return list(range(self.n_clusters))
+        return sorted(self.cluster_representatives.index.get_level_values(0).unique())
 
     @property
     def assignments(self) -> pd.DataFrame:
