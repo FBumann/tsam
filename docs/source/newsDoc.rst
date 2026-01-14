@@ -1,6 +1,6 @@
-################
+##################
 tsam's Change Log
-################
+##################
 
 *********************
 Release version 3.0.0
@@ -12,35 +12,74 @@ Breaking Changes
 ================
 
 * **New functional API**: The primary interface is now ``tsam.aggregate()`` which returns an ``AggregationResult`` object
-* **Configuration objects**: Clustering and segmentation options are now configured via ``ClusterConfig`` and ``SegmentConfig`` dataclasses
-* **Renamed parameters**: Many parameters have been renamed for consistency (e.g., ``noTypicalPeriods`` → ``n_clusters``, ``hoursPerPeriod`` → ``period_duration``)
-* **Removed methods**: The ``reconstruct()`` method has been removed; use the ``reconstructed`` property on results instead
+* **Configuration objects**: Clustering and segmentation options are now configured via ``ClusterConfig``, ``SegmentConfig``, and ``ExtremeConfig`` dataclasses
+* **Removed methods**: The ``reconstruct()`` method has been removed; use the ``reconstructed`` property on ``AggregationResult`` instead
+* **Renamed parameters**: Parameters have been renamed for consistency:
+
+  ==================================  ======================================================
+  Old (v2)                            New (v3)
+  ==================================  ======================================================
+  ``noTypicalPeriods``                ``n_clusters``
+  ``hoursPerPeriod``                  ``period_duration``
+  ``resolution``                      ``timestep_duration``
+  ``clusterMethod``                   ``cluster=ClusterConfig(method=...)``
+  ``representationMethod``            ``cluster=ClusterConfig(representation=...)``
+  ``segmentation`` + ``noSegments``   ``segments=SegmentConfig(n_segments=...)``
+  ``sameMean``                        ``cluster=ClusterConfig(normalize_column_means=...)``
+  ``rescaleClusterPeriods``           ``preserve_column_means``
+  ``sortValues``                      ``cluster=ClusterConfig(use_duration_curves=...)``
+  ``evalSumPeriods``                  ``cluster=ClusterConfig(include_period_sums=...)``
+  ``weightDict``                      ``cluster=ClusterConfig(weights=...)``
+  ``addPeakMax/Min``, etc.            ``extremes=ExtremeConfig(max_value=..., ...)``
+  ==================================  ======================================================
 
 New Features
 ============
 
-* **Modern functional API**: New ``tsam.aggregate()`` function with clear configuration objects
-* **Rich result objects**: ``AggregationResult`` provides easy access to cluster representatives, accuracy metrics, and reconstructed data
-* **Clustering transfer**: New ``ClusteringResult`` dataclass enables serialization and transfer of clustering configurations
-* **Improved plotting**: New plotting methods with better defaults and Plotly integration
-* **Enhanced hyperparameter tuning**: Improved ``find_optimal_combination()`` and ``find_pareto_front()`` with additional parameters:
+* **Modern functional API**: New ``tsam.aggregate()`` function returns an ``AggregationResult`` with properties:
 
-  - ``segment_representation``
-  - ``extremes`` configuration
-  - ``preserve_column_means``
-  - ``round_decimals``
-  - ``numerical_tolerance``
+  - ``cluster_representatives``: DataFrame with aggregated typical periods
+  - ``cluster_assignments``: Which cluster each original period belongs to
+  - ``cluster_weights``: Occurrence count per cluster
+  - ``accuracy``: ``AccuracyMetrics`` object with RMSE, MAE, and duration curve RMSE
+  - ``reconstructed``: Reconstructed time series (cached property)
+  - ``residuals``: Difference between original and reconstructed
+  - ``original``: Access to original input data
+  - ``clustering``: ``ClusteringResult`` for serialization and transfer
 
-* **Accuracy metrics**: New ``AccuracyMetrics`` class with convenient summary methods
+* **Clustering transfer and serialization**: New ``ClusteringResult`` enables:
+
+  - Save/load clustering via ``to_json()`` / ``from_json()``
+  - Apply same clustering to different data via ``apply()``
+  - Transfer clustering from one dataset to another (e.g., cluster on wind, apply to all columns)
+
+* **Integrated plotting** via ``result.plot`` accessor with Plotly:
+
+  - ``result.plot.compare()``: Compare original vs reconstructed (duration curves)
+  - ``result.plot.residuals()``: Visualize reconstruction errors
+  - ``result.plot.heatmap()``: Heatmap of cluster representatives
+  - ``result.plot.cluster_assignments()``: Visualize period-to-cluster mapping
+
+* **Hyperparameter tuning module** ``tsam.tuning`` with:
+
+  - ``find_optimal_combination()``: Find best n_clusters/n_segments combination
+  - ``find_pareto_front()``: Compute Pareto front of accuracy vs. complexity
+  - Support for parallel execution
+  - New parameters: ``segment_representation``, ``extremes``, ``preserve_column_means``, ``round_decimals``, ``numerical_tolerance``
+
+* **Accuracy metrics**: ``AccuracyMetrics`` class with ``.summary`` property for convenient DataFrame output
+
+* **Utility functions**: ``tsam.unstack_to_periods()`` for reshaping time series for heatmap visualization
 
 Improvements
 ============
 
-* Segment center preservation for better accuracy
+* Segment center preservation for better accuracy when using medoid/maxoid segment representation
 * Consistent semantic naming across the entire codebase
 * Better handling of extreme periods with ``n_clusters`` edge cases
 * Fixed rescaling with segmentation (was applying rescaling twice)
 * Fixed ``predictOriginalData()`` denormalization when using ``sameMean=True`` with segmentation
+* Lazy loading of optional modules (``plot``, ``tuning``) to reduce import time
 
 Legacy API
 ==========
@@ -48,9 +87,51 @@ Legacy API
 The class-based API remains available for backward compatibility::
 
     import tsam.timeseriesaggregation as tsam_legacy
-    aggregation = tsam_legacy.TimeSeriesAggregation(raw, noTypicalPeriods=8, ...)
 
-See the migration examples in the documentation for upgrading to the new API.
+    aggregation = tsam_legacy.TimeSeriesAggregation(
+        raw,
+        noTypicalPeriods=8,
+        hoursPerPeriod=24,
+        clusterMethod='hierarchical',
+    )
+    typical_periods = aggregation.createTypicalPeriods()
+
+Quick Migration Example
+=======================
+
+**Before (v2)**::
+
+    import tsam.timeseriesaggregation as tsam
+
+    agg = tsam.TimeSeriesAggregation(
+        df,
+        noTypicalPeriods=8,
+        hoursPerPeriod=24,
+        clusterMethod='hierarchical',
+        representationMethod='distributionAndMinMaxRepresentation',
+        segmentation=True,
+        noSegments=12,
+    )
+    typical = agg.createTypicalPeriods()
+    reconstructed = agg.predictOriginalData()
+
+**After (v3)**::
+
+    import tsam
+    from tsam import ClusterConfig, SegmentConfig
+
+    result = tsam.aggregate(
+        df,
+        n_clusters=8,
+        period_duration=24,
+        cluster=ClusterConfig(
+            method='hierarchical',
+            representation='distribution_minmax',
+        ),
+        segments=SegmentConfig(n_segments=12),
+    )
+    typical = result.cluster_representatives
+    reconstructed = result.reconstructed
 
 
 *********************
