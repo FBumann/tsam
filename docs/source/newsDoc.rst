@@ -81,10 +81,21 @@ Improvements
 * Fixed ``predictOriginalData()`` denormalization when using ``sameMean=True`` with segmentation
 * Lazy loading of optional modules (``plot``, ``tuning``) to reduce import time
 
+Deprecations
+============
+
+* **TimeSeriesAggregation class**: The legacy class-based API now emits a ``LegacyAPIWarning`` when instantiated. It will be removed in a future version. Users should migrate to the new ``tsam.aggregate()`` function.
+
+* To suppress the warning during migration::
+
+    import warnings
+    from tsam import LegacyAPIWarning
+    warnings.filterwarnings("ignore", category=LegacyAPIWarning)
+
 Legacy API
 ==========
 
-The class-based API remains available for backward compatibility::
+The class-based API remains available for backward compatibility but is deprecated::
 
     import tsam.timeseriesaggregation as tsam_legacy
 

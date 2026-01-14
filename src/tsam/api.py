@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import cast
 
 import pandas as pd
@@ -15,6 +16,7 @@ from tsam.config import (
     ExtremeConfig,
     SegmentConfig,
 )
+from tsam.exceptions import LegacyAPIWarning
 from tsam.result import AccuracyMetrics, AggregationResult
 from tsam.timeseriesaggregation import TimeSeriesAggregation, unstackToPeriods
 
@@ -254,9 +256,11 @@ def aggregate(
         numerical_tolerance=numerical_tolerance,
     )
 
-    # Run aggregation using old implementation
-    agg = TimeSeriesAggregation(**old_params)
-    cluster_representatives = agg.createTypicalPeriods()
+    # Run aggregation using old implementation (suppress deprecation warning for internal use)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", LegacyAPIWarning)
+        agg = TimeSeriesAggregation(**old_params)
+        cluster_representatives = agg.createTypicalPeriods()
 
     # Rename index levels for consistency with new API terminology
     cluster_representatives = cluster_representatives.rename_axis(

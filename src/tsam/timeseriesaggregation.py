@@ -7,6 +7,7 @@ import pandas as pd
 from sklearn import preprocessing
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 
+from tsam.exceptions import LegacyAPIWarning
 from tsam.periodAggregation import aggregatePeriods
 from tsam.representations import representations
 
@@ -277,6 +278,12 @@ class TimeSeriesAggregation:
             shall be added to the typical periods. optional, default: []
         :type addMeanMax: list
         """
+        warnings.warn(
+            "TimeSeriesAggregation is deprecated and will be removed in a future version. "
+            "Use tsam.aggregate() instead. See the migration guide in the documentation.",
+            LegacyAPIWarning,
+            stacklevel=2,
+        )
         if addMeanMin is None:
             addMeanMin = []
         if addMeanMax is None:
