@@ -84,13 +84,12 @@ Improvements
 Performance
 ===========
 
-* **290x faster reconstruction**: Vectorized ``predictOriginalData()`` by replacing a per-period loop with batch pandas operations. Full workflow speedup of ~40x for yearly data.
+* **35x faster workflow**: Vectorized ``predictOriginalData()`` by replacing a per-period loop with batch pandas operations.
 
   ==================================  ==========  ==========  =========
-  Benchmark (8760 hours, 5 columns)   Before      After       Speedup
+  Benchmark (8760 hours, 4 columns)   Before      After       Speedup
   ==================================  ==========  ==========  =========
-  ``predictOriginalData()``           650 ms      2.2 ms      **290x**
-  Full workflow with accuracy         ~2.4 s      ~0.06 s     **~40x**
+  Full workflow with accuracy         1223 ms     35 ms       **35x**
   ==================================  ==========  ==========  =========
 
 Deprecations
