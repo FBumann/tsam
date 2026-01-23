@@ -196,24 +196,6 @@ def run_aggregation(data: pd.DataFrame, test_case: ClusteringTestCase):
     )
 
 
-def sort_clusters_for_comparison(df: pd.DataFrame) -> pd.DataFrame:
-    """Sort clusters by GHI sum for order-independent comparison.
-
-    This ensures tests pass regardless of which cluster gets assigned
-    which index, as long as the cluster contents match.
-    """
-    # Get the sorting column - use first column as fallback
-    sort_col = "GHI" if "GHI" in df.columns else df.columns[0]
-
-    # Sort cluster indices by sum of sort column
-    sorted_idx = df.groupby(level=0).sum().sort_values(sort_col).index
-
-    # Reorder DataFrame by sorted cluster indices
-    sorted_df = df.unstack().loc[sorted_idx, :].stack(future_stack=True)
-
-    return sorted_df
-
-
 class TestClusteringE2E:
     """End-to-end tests for clustering configurations."""
 
@@ -239,14 +221,10 @@ class TestClusteringE2E:
         result = run_aggregation(input_data, test_case)
         actual = result.cluster_representatives
 
-        # Sort both for order-independent comparison
-        expected_sorted = sort_clusters_for_comparison(expected[actual.columns])
-        actual_sorted = sort_clusters_for_comparison(actual)
-
-        # Compare values
+        # Compare values directly (cluster order should be deterministic)
         np.testing.assert_array_almost_equal(
-            expected_sorted.values,
-            actual_sorted.values,
+            expected[actual.columns].values,
+            actual.values,
             decimal=4,
             err_msg=f"Cluster representatives mismatch for {test_case.id}",
         )
