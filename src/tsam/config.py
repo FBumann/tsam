@@ -549,6 +549,19 @@ class ClusteringResult:
         AggregationResult
             Aggregation result using this clustering.
 
+        Notes
+        -----
+        **Extreme period transfer limitations:**
+
+        The 'replace' extreme method creates a hybrid cluster representation where
+        some columns use the medoid values and others use the extreme period values.
+        This hybrid representation cannot be perfectly reproduced during transfer.
+        When applying a clustering that used 'replace', a warning will be issued
+        and the transferred result will use the medoid representation for all columns.
+
+        For exact transfer with extreme periods, use 'append' or 'new_cluster'
+        extreme methods instead.
+
         Examples
         --------
         >>> # Cluster on wind data, apply to full dataset
@@ -564,6 +577,21 @@ class ClusteringResult:
         from tsam.exceptions import LegacyAPIWarning
         from tsam.result import AccuracyMetrics, AggregationResult
         from tsam.timeseriesaggregation import TimeSeriesAggregation
+
+        # Warn if using replace extreme method (transfer is not exact)
+        if (
+            self.extremes_config is not None
+            and self.extremes_config.method == "replace"
+        ):
+            warnings.warn(
+                "The 'replace' extreme method creates a hybrid cluster representation "
+                "(some columns from the medoid, some from the extreme period) that cannot "
+                "be perfectly reproduced during transfer. The transferred result will use "
+                "the medoid representation for all columns instead of the hybrid values. "
+                "For exact transfer, use 'append' or 'new_cluster' extreme methods.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         # Use stored timestep_duration if not provided
         effective_timestep_duration = (

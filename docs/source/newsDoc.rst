@@ -82,6 +82,16 @@ Improvements
 * Fixed ``ClusteringResult.apply()`` to correctly preserve extreme period handling during transfer
 * Lazy loading of optional modules (``plot``, ``tuning``) to reduce import time
 
+Known Limitations
+=================
+
+* **Clustering transfer with 'replace' extreme method**: The 'replace' extreme method
+  creates a hybrid cluster representation where some columns use the medoid values
+  and others use the extreme period values. This hybrid representation cannot be
+  perfectly reproduced during transfer via ``ClusteringResult.apply()``. A warning
+  is issued when attempting to transfer such a clustering. For exact transfer with
+  extreme periods, use 'append' or 'new_cluster' extreme methods instead.
+
 Performance
 ===========
 
