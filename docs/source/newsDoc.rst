@@ -80,6 +80,7 @@ Improvements
 * Fixed rescaling with segmentation (was applying rescaling twice)
 * Fixed ``predictOriginalData()`` denormalization when using ``sameMean=True`` with segmentation
 * Fixed ``ClusteringResult.apply()`` to correctly preserve extreme period handling during transfer
+* Fixed non-deterministic sorting in duration representation by using stable sort, ensuring reproducible results across environments
 * Lazy loading of optional modules (``plot``, ``tuning``) to reduce import time
 
 Known Limitations
