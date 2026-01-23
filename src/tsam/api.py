@@ -348,14 +348,25 @@ def _build_clustering_result(
 ) -> ClusteringResult:
     """Build ClusteringResult from a TimeSeriesAggregation object."""
     # Get cluster centers (convert to Python ints for JSON serialization)
-    # Include both regular cluster centers and extreme period indices
+    # Handle extreme periods based on method:
+    # - new_cluster/append: append extreme period indices (creates additional clusters)
+    # - replace: keep original cluster centers
+    #   Note: replace creates a hybrid representation (some columns from medoid, some
+    #   from extreme period) that cannot be perfectly reproduced during transfer
     cluster_centers: tuple[int, ...] | None = None
     if agg.clusterCenterIndices is not None:
         center_indices = [int(x) for x in agg.clusterCenterIndices]
-        # Add extreme period indices (they are cluster centers for their respective clusters)
-        if hasattr(agg, "extremePeriods") and agg.extremePeriods:
+
+        if (
+            hasattr(agg, "extremePeriods")
+            and agg.extremePeriods
+            and extremes_config is not None
+            and extremes_config.method in ("new_cluster", "append")
+        ):
+            # Add extreme period indices as new cluster centers
             for period_type in agg.extremePeriods:
                 center_indices.append(int(agg.extremePeriods[period_type]["stepNo"]))
+
         cluster_centers = tuple(center_indices)
 
     # Compute segment data if segmentation was used
