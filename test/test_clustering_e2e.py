@@ -300,6 +300,137 @@ class TestClusteringE2E:
             )
 
 
+# Subset of test cases for transfer tests (skip slow ones and extremes)
+# - kmedoids/contiguous: too slow for repeated runs
+# - extremes: transfer doesn't support extreme period handling yet
+TRANSFER_TEST_CASES = [
+    tc
+    for tc in TEST_CASES
+    if tc.method not in ("kmedoids", "contiguous") and tc.extreme_method is None
+]
+
+
+def get_transfer_test_ids():
+    """Get test IDs for transfer test parametrization."""
+    return [tc.id for tc in TRANSFER_TEST_CASES]
+
+
+class TestClusteringTransfer:
+    """Tests for clustering transfer and reproducibility."""
+
+    @pytest.mark.parametrize(
+        "test_case", TRANSFER_TEST_CASES, ids=get_transfer_test_ids()
+    )
+    def test_apply_produces_identical_results(
+        self, test_case: ClusteringTestCase, input_data
+    ):
+        """Test that applying clustering to same data produces identical results."""
+        # Run initial aggregation
+        result1 = run_aggregation(input_data, test_case)
+
+        # Apply clustering to same data
+        result2 = result1.clustering.apply(input_data)
+
+        # Results should be identical
+        pd.testing.assert_frame_equal(
+            result1.cluster_representatives,
+            result2.cluster_representatives,
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    @pytest.mark.parametrize(
+        "test_case", TRANSFER_TEST_CASES, ids=get_transfer_test_ids()
+    )
+    def test_json_roundtrip_produces_identical_results(
+        self, test_case: ClusteringTestCase, input_data, tmp_path
+    ):
+        """Test that JSON save/load/apply produces identical results."""
+        from tsam import ClusteringResult
+
+        # Run initial aggregation
+        result1 = run_aggregation(input_data, test_case)
+
+        # Save to JSON
+        json_path = tmp_path / f"clustering_{test_case.id}.json"
+        result1.clustering.to_json(str(json_path))
+
+        # Load and apply
+        clustering = ClusteringResult.from_json(str(json_path))
+        result2 = clustering.apply(input_data)
+
+        # Results should be identical
+        pd.testing.assert_frame_equal(
+            result1.cluster_representatives,
+            result2.cluster_representatives,
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    @pytest.mark.parametrize(
+        "test_case", TRANSFER_TEST_CASES, ids=get_transfer_test_ids()
+    )
+    def test_reconstruction_shape(self, test_case: ClusteringTestCase, input_data):
+        """Test that reconstructed data has same shape as input."""
+        result = run_aggregation(input_data, test_case)
+        reconstructed = result.reconstructed
+
+        assert reconstructed.shape == input_data.shape, (
+            f"Reconstruction shape mismatch: expected {input_data.shape}, "
+            f"got {reconstructed.shape}"
+        )
+        assert list(reconstructed.columns) == list(input_data.columns)
+
+    def test_apply_to_different_columns(self, input_data):
+        """Test applying clustering from subset to full data."""
+        # Cluster on single column
+        wind_only = input_data[["Wind"]]
+        result_wind = aggregate(wind_only, n_clusters=8)
+
+        # Apply to full data
+        result_full = result_wind.clustering.apply(input_data)
+
+        # Cluster assignments should be identical
+        assert list(result_wind.cluster_assignments) == list(
+            result_full.cluster_assignments
+        )
+
+        # Full result should have all columns
+        assert list(result_full.cluster_representatives.columns) == list(
+            input_data.columns
+        )
+
+    def test_segmentation_preserved_in_transfer(self, input_data, tmp_path):
+        """Test that segmentation info is preserved through JSON roundtrip."""
+        from tsam import ClusteringResult
+
+        # Run with segmentation
+        result1 = aggregate(
+            input_data,
+            n_clusters=8,
+            segments=SegmentConfig(n_segments=6),
+        )
+
+        # Save and load
+        json_path = tmp_path / "clustering_seg.json"
+        result1.clustering.to_json(str(json_path))
+        clustering = ClusteringResult.from_json(str(json_path))
+
+        # Apply to same data
+        result2 = clustering.apply(input_data)
+
+        # Segmentation should be preserved
+        assert result2.n_segments == result1.n_segments
+        assert result2.segment_durations == result1.segment_durations
+
+        pd.testing.assert_frame_equal(
+            result1.cluster_representatives,
+            result2.cluster_representatives,
+            check_exact=False,
+            atol=1e-10,
+        )
+
+
 def generate_fixtures(output_dir: Path | None = None):
     """Generate expected fixture files for all test cases.
 
