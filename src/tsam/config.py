@@ -245,7 +245,7 @@ class ClusteringResult:
     segment_representation : str, optional
         How to compute segment values. Only used if segmentation is present.
 
-    timestep_duration : float, optional
+    temporal_resolution : float, optional
         Time resolution of input data in hours. If not provided, inferred.
 
     Reference Fields (for documentation, not used by apply())
@@ -287,7 +287,7 @@ class ClusteringResult:
     rescale_exclude_columns: tuple[str, ...] | None = None
     representation: RepresentationMethod = "medoid"
     segment_representation: RepresentationMethod | None = None
-    timestep_duration: float | None = None
+    temporal_resolution: float | None = None
     extreme_cluster_indices: tuple[int, ...] | None = None
 
     # === Reference fields (for documentation, not used by apply()) ===
@@ -421,8 +421,8 @@ class ClusteringResult:
             result["rescale_exclude_columns"] = list(self.rescale_exclude_columns)
         if self.segment_representation is not None:
             result["segment_representation"] = self.segment_representation
-        if self.timestep_duration is not None:
-            result["timestep_duration"] = self.timestep_duration
+        if self.temporal_resolution is not None:
+            result["temporal_resolution"] = self.temporal_resolution
         if self.extreme_cluster_indices is not None:
             result["extreme_cluster_indices"] = list(self.extreme_cluster_indices)
         # Reference fields (optional, for documentation)
@@ -461,8 +461,8 @@ class ClusteringResult:
             kwargs["rescale_exclude_columns"] = tuple(data["rescale_exclude_columns"])
         if "segment_representation" in data:
             kwargs["segment_representation"] = data["segment_representation"]
-        if "timestep_duration" in data:
-            kwargs["timestep_duration"] = data["timestep_duration"]
+        if "temporal_resolution" in data:
+            kwargs["temporal_resolution"] = data["temporal_resolution"]
         if "extreme_cluster_indices" in data:
             kwargs["extreme_cluster_indices"] = tuple(data["extreme_cluster_indices"])
         # Reference fields
@@ -540,7 +540,7 @@ class ClusteringResult:
         self,
         data: pd.DataFrame,
         *,
-        timestep_duration: float | None = None,
+        temporal_resolution: float | None = None,
         round_decimals: int | None = None,
         numerical_tolerance: float = 1e-13,
     ) -> AggregationResult:
@@ -555,9 +555,9 @@ class ClusteringResult:
             Input time series data with a datetime index.
             Must have the same number of periods as the original data.
 
-        timestep_duration : float, optional
+        temporal_resolution : float, optional
             Time resolution of input data in hours.
-            If not provided, uses stored timestep_duration or infers from data index.
+            If not provided, uses stored temporal_resolution or infers from data index.
 
         round_decimals : int, optional
             Round output values to this many decimal places.
@@ -614,22 +614,22 @@ class ClusteringResult:
                 stacklevel=2,
             )
 
-        # Use stored timestep_duration if not provided
-        effective_timestep_duration = (
-            timestep_duration
-            if timestep_duration is not None
-            else self.timestep_duration
+        # Use stored temporal_resolution if not provided
+        effective_temporal_resolution = (
+            temporal_resolution
+            if temporal_resolution is not None
+            else self.temporal_resolution
         )
 
         # Validate n_timesteps_per_period matches data
         # Infer timestep duration from data if not provided
-        if effective_timestep_duration is None:
+        if effective_temporal_resolution is None:
             if isinstance(data.index, pd.DatetimeIndex) and len(data.index) > 1:
                 inferred = (data.index[1] - data.index[0]).total_seconds() / 3600
             else:
                 inferred = 1.0  # Default to hourly
         else:
-            inferred = effective_timestep_duration
+            inferred = effective_temporal_resolution
 
         inferred_timesteps = int(self.period_duration / inferred)
         if inferred_timesteps != self.n_timesteps_per_period:
@@ -672,7 +672,7 @@ class ClusteringResult:
             data=data,
             n_clusters=self.n_clusters,
             period_duration=self.period_duration,
-            timestep_duration=effective_timestep_duration,
+            temporal_resolution=effective_temporal_resolution,
             cluster=cluster,
             segments=segments,
             extremes=None,
@@ -737,7 +737,7 @@ class ClusteringResult:
             rescale_exclude_columns=list(self.rescale_exclude_columns)
             if self.rescale_exclude_columns
             else None,
-            timestep_duration=effective_timestep_duration,
+            temporal_resolution=effective_temporal_resolution,
         )
 
         # Build result object
