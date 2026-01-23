@@ -109,13 +109,37 @@ TEST_CASES = [
         extreme_method="new_cluster",
         extreme_columns=["Load"],
     ),
+    # Replace extreme method
+    ClusteringTestCase(
+        id="hierarchical_medoid_8clusters_extremes_replace",
+        method="hierarchical",
+        representation="medoid",
+        extreme_method="replace",
+        extreme_columns=["Load"],
+    ),
     # Combined features
     ClusteringTestCase(
-        id="hierarchical_medoid_8clusters_12segments_extremes",
+        id="hierarchical_medoid_8clusters_12segments_extremes_append",
         method="hierarchical",
         representation="medoid",
         n_segments=12,
         extreme_method="append",
+        extreme_columns=["Load"],
+    ),
+    ClusteringTestCase(
+        id="hierarchical_medoid_8clusters_6segments_extremes_newcluster",
+        method="hierarchical",
+        representation="medoid",
+        n_segments=6,
+        extreme_method="new_cluster",
+        extreme_columns=["Load"],
+    ),
+    ClusteringTestCase(
+        id="hierarchical_medoid_8clusters_12segments_extremes_replace",
+        method="hierarchical",
+        representation="medoid",
+        n_segments=12,
+        extreme_method="replace",
         extreme_columns=["Load"],
     ),
 ]
