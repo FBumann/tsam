@@ -300,13 +300,10 @@ class TestClusteringE2E:
             )
 
 
-# Subset of test cases for transfer tests (skip slow ones and extremes)
+# Subset of test cases for transfer tests (skip slow ones)
 # - kmedoids/contiguous: too slow for repeated runs
-# - extremes: transfer doesn't support extreme period handling yet
 TRANSFER_TEST_CASES = [
-    tc
-    for tc in TEST_CASES
-    if tc.method not in ("kmedoids", "contiguous") and tc.extreme_method is None
+    tc for tc in TEST_CASES if tc.method not in ("kmedoids", "contiguous")
 ]
 
 

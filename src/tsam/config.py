@@ -288,6 +288,7 @@ class ClusteringResult:
     representation: RepresentationMethod = "medoid"
     segment_representation: RepresentationMethod | None = None
     timestep_duration: float | None = None
+    extreme_cluster_indices: tuple[int, ...] | None = None
 
     # === Reference fields (for documentation, not used by apply()) ===
     cluster_config: ClusterConfig | None = None
@@ -422,6 +423,8 @@ class ClusteringResult:
             result["segment_representation"] = self.segment_representation
         if self.timestep_duration is not None:
             result["timestep_duration"] = self.timestep_duration
+        if self.extreme_cluster_indices is not None:
+            result["extreme_cluster_indices"] = list(self.extreme_cluster_indices)
         # Reference fields (optional, for documentation)
         if self.cluster_config is not None:
             result["cluster_config"] = self.cluster_config.to_dict()
@@ -460,6 +463,8 @@ class ClusteringResult:
             kwargs["segment_representation"] = data["segment_representation"]
         if "timestep_duration" in data:
             kwargs["timestep_duration"] = data["timestep_duration"]
+        if "extreme_cluster_indices" in data:
+            kwargs["extreme_cluster_indices"] = tuple(data["extreme_cluster_indices"])
         # Reference fields
         if "cluster_config" in data:
             kwargs["cluster_config"] = ClusterConfig.from_dict(data["cluster_config"])
@@ -611,6 +616,9 @@ class ClusteringResult:
             )
 
         # Build old API parameters, passing predefined values directly
+        # Note: Don't pass extremes config - extreme clusters are handled via
+        # extreme_cluster_indices and representations are computed from
+        # the periods assigned to those clusters in cluster_assignments
         old_params = _build_old_params(
             data=data,
             n_clusters=self.n_clusters,
@@ -628,6 +636,7 @@ class ClusteringResult:
             # Predefined values from this ClusteringResult
             predef_cluster_assignments=self.cluster_assignments,
             predef_cluster_centers=self.cluster_centers,
+            predef_extreme_cluster_indices=self.extreme_cluster_indices,
             predef_segment_assignments=self.segment_assignments,
             predef_segment_durations=self.segment_durations,
             predef_segment_centers=self.segment_centers,

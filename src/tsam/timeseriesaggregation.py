@@ -138,6 +138,7 @@ class TimeSeriesAggregation:
         segmentRepresentationMethod=None,
         predefClusterOrder=None,
         predefClusterCenterIndices=None,
+        predefExtremeClusterIdx=None,
         predefSegmentOrder=None,
         predefSegmentDurations=None,
         predefSegmentCenters=None,
@@ -340,6 +341,8 @@ class TimeSeriesAggregation:
         self.predefClusterOrder = predefClusterOrder
 
         self.predefClusterCenterIndices = predefClusterCenterIndices
+
+        self.predefExtremeClusterIdx = predefExtremeClusterIdx
 
         self.predefSegmentOrder = predefSegmentOrder
 
@@ -1127,7 +1130,11 @@ class TimeSeriesAggregation:
                 addMeanMax=self.addMeanMax,
             )
         else:
-            self.extremeClusterIdx = []
+            # Use predefined extreme cluster indices if provided (for transfer/apply)
+            if self.predefExtremeClusterIdx is not None:
+                self.extremeClusterIdx = list(self.predefExtremeClusterIdx)
+            else:
+                self.extremeClusterIdx = []
 
         # get number of appearance of the the typical periods
         nums, counts = np.unique(self._clusterOrder, return_counts=True)
