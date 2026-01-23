@@ -995,8 +995,11 @@ class TimeSeriesAggregation:
         n_timesteps = n_total // n_cols
 
         # Sort each period's timesteps descending for all columns at once
+        # Use stable sort for deterministic tie-breaking across environments
         values_3d = values.reshape(n_periods, n_cols, n_timesteps)
-        sortedClusterValues = (-np.sort(-values_3d, axis=2)).reshape(n_periods, -1)
+        sortedClusterValues = (-np.sort(-values_3d, axis=2, kind="stable")).reshape(
+            n_periods, -1
+        )
 
         (
             _altClusterCenters,

@@ -88,9 +88,9 @@ Known Limitations
 * **Clustering transfer with 'replace' extreme method**: The 'replace' extreme method
   creates a hybrid cluster representation where some columns use the medoid values
   and others use the extreme period values. This hybrid representation cannot be
-  perfectly reproduced during transfer via ``ClusteringResult.apply()``. A warning
-  is issued when attempting to transfer such a clustering. For exact transfer with
-  extreme periods, use 'append' or 'new_cluster' extreme methods instead.
+  perfectly reproduced during transfer via ``ClusteringResult.apply()``. Warnings
+  are issued when saving (``to_json()``) or applying such a clustering. For exact
+  transfer with extreme periods, use 'append' or 'new_cluster' extreme methods instead.
 
 Performance
 ===========
