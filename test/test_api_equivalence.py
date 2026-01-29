@@ -435,6 +435,9 @@ class TestTuningEquivalence:
         # Get RMSE history from summary
         new_rmse_history = new_results.summary["rmse"].tolist()
 
+        # RMSE histories should match between old and new API
+        np.testing.assert_allclose(new_rmse_history, old_rmse_history, rtol=1e-10)
+
         # RMSE should be monotonically decreasing (or equal)
         for i in range(1, len(new_rmse_history)):
             assert new_rmse_history[i] <= new_rmse_history[i - 1] + 1e-10
