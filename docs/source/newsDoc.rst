@@ -3,6 +3,16 @@ tsam's Change Log
 ##################
 
 *********************
+Release version 3.0.1
+*********************
+
+* Added ``preserve_n_clusters`` option to ``ExtremeConfig``. When set to ``True``, extreme periods
+  count toward ``n_clusters`` instead of being added on top, giving exact control over the final
+  number of representative periods. Default behavior is unchanged.
+
+* Removed ``matplotlib`` dependency; all plotting and notebooks now use ``plotly``
+
+*********************
 Release version 3.0.0
 *********************
 

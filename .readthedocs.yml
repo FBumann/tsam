@@ -8,10 +8,14 @@ build:
     python: "mambaforge-22.9"
   apt_packages:
     - graphviz
+  jobs:
+    pre_build:
+      - conda run --name $READTHEDOCS_VERSION pip install -e . --no-deps
+      - conda run --name $READTHEDOCS_VERSION conda list
 
 # Use conda environment
 conda:
-  environment: requirements_dev.yml
+  environment: environment.yml
 
 # Build documentation with Sphinx
 sphinx:
