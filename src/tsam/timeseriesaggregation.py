@@ -686,17 +686,16 @@ class TimeSeriesAggregation:
 
         return unnormalizedTimeSeries
 
-    def _countExtremePeriods(self, groupedSeries):
+    def _getExtremePeriodIndices(self, groupedSeries):
         """
-        Count unique extreme periods without modifying any state.
+        Get unique extreme period indices without modifying any state.
 
-        Used by extremePreserveNumClusters to determine how many clusters
-        to reserve for extreme periods before clustering.
+        Returns a set of period indices that contain extreme values.
+        Used by extremePreserveNumClusters to identify which periods
+        should be forced as cluster centers before clustering.
 
         Note: The extreme-finding logic (idxmax/idxmin on peak/mean) must
-        stay in sync with _addExtremePeriods. This is intentionally separate
-        because _addExtremePeriods also filters out periods that are already
-        cluster centers (not known at count time).
+        stay in sync with _addExtremePeriods.
         """
         extremePeriodIndices = set()
 
@@ -724,7 +723,15 @@ class TimeSeriesAggregation:
                 if column in self.addMeanMin:
                     extremePeriodIndices.add(mean_series.idxmin())
 
-        return len(extremePeriodIndices)
+        return extremePeriodIndices
+
+    def _countExtremePeriods(self, groupedSeries):
+        """
+        Count unique extreme periods without modifying any state.
+
+        Convenience wrapper around _getExtremePeriodIndices.
+        """
+        return len(self._getExtremePeriodIndices(groupedSeries))
 
     def _addExtremePeriods(
         self,
@@ -1113,15 +1120,20 @@ class TimeSeriesAggregation:
                 stacklevel=2,
             )
 
-        # Count extreme periods upfront if include_in_count is True
+        # Identify extreme periods upfront if preserve_n_clusters is True
         # Note: replace_cluster_center doesn't add new clusters, so skip
-        n_extremes = 0
-        if (
+        extreme_period_indices = set()
+        force_extremes_first = (
             self.extremePreserveNumClusters
             and self.extremePeriodMethod not in ("None", "replace_cluster_center")
-            and self.predefClusterOrder is None  # Don't count for predefined
-        ):
-            n_extremes = self._countExtremePeriods(self.normalizedPeriodlyProfiles)
+            and self.predefClusterOrder is None  # Don't use for predefined
+        )
+
+        if force_extremes_first:
+            extreme_period_indices = self._getExtremePeriodIndices(
+                self.normalizedPeriodlyProfiles
+            )
+            n_extremes = len(extreme_period_indices)
 
             if self.noTypicalPeriods <= n_extremes:
                 raise ValueError(
@@ -1131,7 +1143,7 @@ class TimeSeriesAggregation:
                 )
 
         # Compute effective number of clusters for the clustering algorithm
-        effective_n_clusters = self.noTypicalPeriods - n_extremes
+        effective_n_clusters = self.noTypicalPeriods - len(extreme_period_indices)
 
         # check for additional cluster parameters
         if self.evalSumPeriods:
@@ -1167,6 +1179,90 @@ class TimeSeriesAggregation:
                     representationDict=self.representationDict,
                     timeStepsPerPeriod=self.timeStepsPerPeriod,
                 )
+        elif force_extremes_first and extreme_period_indices:
+            # Force extremes as cluster centers: exclude them from clustering,
+            # then add them back as their own clusters
+            cluster_duration = time.time()
+
+            n_periods = len(candidates)
+            all_indices = np.arange(n_periods)
+            extreme_indices_sorted = sorted(extreme_period_indices)
+            non_extreme_mask = ~np.isin(all_indices, extreme_indices_sorted)
+            non_extreme_indices = all_indices[non_extreme_mask]
+
+            # Cluster only non-extreme periods
+            non_extreme_candidates = candidates[non_extreme_mask]
+
+            if not self.sortValues:
+                (
+                    non_extreme_centers,
+                    non_extreme_center_indices,
+                    non_extreme_order,
+                ) = aggregatePeriods(
+                    non_extreme_candidates,
+                    n_clusters=effective_n_clusters,
+                    n_iter=100,
+                    solver=self.solver,
+                    clusterMethod=self.clusterMethod,
+                    representationMethod=self.representationMethod,
+                    representationDict=self.representationDict,
+                    distributionPeriodWise=self.distributionPeriodWise,
+                    timeStepsPerPeriod=self.timeStepsPerPeriod,
+                )
+            else:
+                non_extreme_centers, non_extreme_order = self._clusterSortedPeriods(
+                    non_extreme_candidates, n_clusters=effective_n_clusters
+                )
+                non_extreme_center_indices = None  # Will be computed below
+
+            # Build full cluster order: map non-extreme cluster assignments back
+            # to original period indices, then add extreme periods
+            self._clusterOrder = np.zeros(n_periods, dtype=int)
+
+            # Assign non-extreme periods to their clusters (0 to effective_n_clusters-1)
+            self._clusterOrder[non_extreme_indices] = non_extreme_order
+
+            # Assign extreme periods to their own clusters (starting after regular clusters)
+            for i, ext_idx in enumerate(extreme_indices_sorted):
+                self._clusterOrder[ext_idx] = effective_n_clusters + i
+
+            # Build cluster centers: regular centers + extreme period values
+            self.clusterCenters = list(non_extreme_centers)
+            for ext_idx in extreme_indices_sorted:
+                self.clusterCenters.append(candidates[ext_idx])
+            self.clusterCenters = np.array(self.clusterCenters)
+
+            # Build cluster center indices
+            if non_extreme_center_indices is not None:
+                # Map filtered indices back to original indices
+                self.clusterCenterIndices = list(
+                    non_extreme_indices[non_extreme_center_indices]
+                )
+            else:
+                # Compute medoid indices for non-extreme clusters
+                self.clusterCenterIndices = []
+                for cluster_id in range(effective_n_clusters):
+                    cluster_mask = self._clusterOrder == cluster_id
+                    cluster_period_indices = all_indices[cluster_mask]
+                    if len(cluster_period_indices) > 0:
+                        # Find the medoid (period closest to cluster center)
+                        cluster_candidates = candidates[cluster_mask]
+                        center = self.clusterCenters[cluster_id]
+                        distances = np.square(cluster_candidates - center).sum(axis=1)
+                        medoid_local_idx = np.argmin(distances)
+                        self.clusterCenterIndices.append(
+                            cluster_period_indices[medoid_local_idx]
+                        )
+
+            # Add extreme period indices as their own cluster center indices
+            self.clusterCenterIndices.extend(extreme_indices_sorted)
+
+            # Track which clusters are extreme clusters
+            self.extremeClusterIdx = list(
+                range(effective_n_clusters, self.noTypicalPeriods)
+            )
+
+            self.clusteringDuration = time.time() - cluster_duration
         else:
             cluster_duration = time.time()
             if not self.sortValues:
@@ -1197,7 +1293,47 @@ class TimeSeriesAggregation:
         for i, cluster_center in enumerate(self.clusterCenters):
             self.clusterPeriods.append(cluster_center[:delClusterParams])
 
-        if not self.extremePeriodMethod == "None":
+        # Add extreme periods via _addExtremePeriods if not already handled
+        if force_extremes_first and extreme_period_indices:
+            # Extremes already added as cluster centers above
+            # Populate self.extremePeriods for compatibility
+            self.extremePeriods = {}
+            for ext_idx in extreme_indices_sorted:
+                # Determine which extreme type this period satisfies
+                col_data = self.normalizedPeriodlyProfiles
+                for column in self.addPeakMax:
+                    if col_data[column].max(axis=1).idxmax() == ext_idx:
+                        max_col = self._append_col_with(column, " max.")
+                        self.extremePeriods[max_col] = {
+                            "stepNo": ext_idx,
+                            "profile": candidates[ext_idx][:delClusterParams],
+                            "column": column,
+                        }
+                for column in self.addPeakMin:
+                    if col_data[column].min(axis=1).idxmin() == ext_idx:
+                        min_col = self._append_col_with(column, " min.")
+                        self.extremePeriods[min_col] = {
+                            "stepNo": ext_idx,
+                            "profile": candidates[ext_idx][:delClusterParams],
+                            "column": column,
+                        }
+                for column in self.addMeanMax:
+                    if col_data[column].mean(axis=1).idxmax() == ext_idx:
+                        max_col = self._append_col_with(column, " max.")
+                        self.extremePeriods[max_col] = {
+                            "stepNo": ext_idx,
+                            "profile": candidates[ext_idx][:delClusterParams],
+                            "column": column,
+                        }
+                for column in self.addMeanMin:
+                    if col_data[column].mean(axis=1).idxmin() == ext_idx:
+                        min_col = self._append_col_with(column, " min.")
+                        self.extremePeriods[min_col] = {
+                            "stepNo": ext_idx,
+                            "profile": candidates[ext_idx][:delClusterParams],
+                            "column": column,
+                        }
+        elif not self.extremePeriodMethod == "None":
             (
                 self.clusterPeriods,
                 self._clusterOrder,
