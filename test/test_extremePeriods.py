@@ -1131,6 +1131,44 @@ class TestPreserveNClustersExtremeAsClusterCenter:
         assert_actual_cluster_count(result, n_clusters)
 
 
+class TestPreserveNClustersAdjacentPeriods:
+    """Test preserve_n_clusters with adjacent_periods (contiguous) clustering."""
+
+    @pytest.fixture
+    def raw_data(self):
+        """Load test data."""
+        return pd.read_csv(TESTDATA_CSV, index_col=0)
+
+    def test_adjacent_periods_warns_about_preserve_n_clusters(self, raw_data):
+        """adjacent_periods with preserve_n_clusters=True should warn."""
+        with pytest.warns(UserWarning, match="adjacent_periods.*contiguity"):
+            tsam.aggregate(
+                raw_data,
+                n_clusters=10,
+                cluster=tsam.ClusterConfig(method="contiguous"),
+                extremes=ExtremeConfig(
+                    method="append",
+                    max_value=["GHI"],
+                    preserve_n_clusters=True,
+                ),
+            )
+
+    def test_adjacent_periods_still_works_without_preserve(self, raw_data):
+        """adjacent_periods without preserve_n_clusters should work normally."""
+        result = tsam.aggregate(
+            raw_data,
+            n_clusters=10,
+            cluster=tsam.ClusterConfig(method="contiguous"),
+            extremes=ExtremeConfig(
+                method="append",
+                max_value=["GHI"],
+                preserve_n_clusters=False,
+            ),
+        )
+        # Should have at least n_clusters (extremes added on top)
+        assert result.n_clusters >= 10
+
+
 class TestPreserveNClustersMultipleExtremesDetailed:
     """Detailed tests to verify exact extreme counting with multiple columns."""
 

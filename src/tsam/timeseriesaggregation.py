@@ -1122,12 +1122,30 @@ class TimeSeriesAggregation:
 
         # Identify extreme periods upfront if preserve_n_clusters is True
         # Note: replace_cluster_center doesn't add new clusters, so skip
+        # Note: adjacent_periods relies on contiguity which breaks when excluding periods
         extreme_period_indices = set()
         force_extremes_first = (
             self.extremePreserveNumClusters
             and self.extremePeriodMethod not in ("None", "replace_cluster_center")
             and self.predefClusterOrder is None  # Don't use for predefined
+            and self.clusterMethod != "adjacent_periods"  # Breaks contiguity
         )
+
+        # Warn if adjacent_periods with preserve_n_clusters - can't guarantee exact count
+        if (
+            self.extremePreserveNumClusters
+            and self.extremePeriodMethod not in ("None", "replace_cluster_center")
+            and self.clusterMethod == "adjacent_periods"
+        ):
+            warnings.warn(
+                "preserve_n_clusters=True with adjacent_periods clustering cannot "
+                "guarantee exact cluster count because excluding extreme periods "
+                "would break the contiguity constraint. Falling back to adding "
+                "extremes after clustering (may result in fewer clusters than requested "
+                "if extremes coincide with cluster centers).",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if force_extremes_first:
             extreme_period_indices = self._getExtremePeriodIndices(
