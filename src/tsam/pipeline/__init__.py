@@ -97,6 +97,51 @@ def _warn_if_out_of_bounds(
             )
 
 
+MIN_WEIGHT = 1e-6
+
+
+def _weight_candidates(
+    candidates: np.ndarray,
+    weights: dict[str, float],
+    n_columns: int,
+    n_timesteps: int,
+) -> np.ndarray:
+    """Apply per-column weights to the flat candidates array.
+
+    Each row of candidates has shape (n_columns * n_timesteps,) with columns
+    interleaved in the MultiIndex order (col0_t0, col0_t1, ..., col1_t0, ...).
+    """
+    weighted: np.ndarray = candidates.copy()
+    for ci in range(n_columns):
+        start = ci * n_timesteps
+        end = start + n_timesteps
+        # Weights are looked up by column order; caller must ensure columns
+        # are sorted alphabetically (matching the sorted normalization).
+        # We apply the weight vector positionally here.
+        weighted[:, start:end] *= (
+            list(weights.values())[ci] if ci < len(weights) else 1.0
+        )
+    return weighted
+
+
+def _build_weight_vector(
+    columns: pd.Index,
+    weights: dict[str, float] | None,
+) -> dict[str, float] | None:
+    """Build a weight dict with MIN_WEIGHT enforcement, sorted by column order."""
+    if not weights:
+        return None
+    result = {}
+    for col in columns:
+        if col in weights:
+            w = weights[col]
+            if w < MIN_WEIGHT:
+                print(f'weight of "{col}" set to the minimal tolerable weighting')
+                w = MIN_WEIGHT
+            result[col] = w
+    return result if result else None
+
+
 def _build_representation_dict(
     columns: pd.Index,
     cluster_rep,
@@ -143,20 +188,36 @@ def run_pipeline(
     # Store original column order (before sort in normalize)
     original_column_order = list(data.columns)
 
-    # Step 1: Normalize
-    norm_data = normalize(data, cluster.weights, cluster.normalize_column_means)
+    # Step 1: Normalize (without weights — weights are only for clustering distance)
+    norm_data = normalize(data, cluster.normalize_column_means)
 
     # Step 2: Unstack to periods
     period_profiles = unstack_to_periods(norm_data.values, n_timesteps_per_period)
     candidates = period_profiles.profiles_dataframe.values
 
-    # Step 3: Add period sum features if requested
+    # Step 2b: Create weighted candidates for clustering distance (if weights provided)
+    validated_weights = _build_weight_vector(norm_data.values.columns, cluster.weights)
+    weighted_candidates: np.ndarray | None = None
+    if validated_weights:
+        weighted_candidates = _weight_candidates(
+            candidates,
+            validated_weights,
+            period_profiles.n_columns,
+            period_profiles.n_timesteps_per_period,
+        )
+
+    # Step 3: Add period sum features if requested (only to weighted candidates for clustering)
     n_feature_cols = candidates.shape[1]
     if cluster.include_period_sums:
-        candidates, n_extra = add_period_sum_features(
-            period_profiles.profiles_dataframe, candidates
-        )
-        n_feature_cols = candidates.shape[1] - n_extra
+        if weighted_candidates is not None:
+            weighted_candidates, n_extra = add_period_sum_features(
+                period_profiles.profiles_dataframe, weighted_candidates
+            )
+        else:
+            candidates, n_extra = add_period_sum_features(
+                period_profiles.profiles_dataframe, candidates
+            )
+        n_feature_cols = candidates.shape[1]
 
     # Step 4: Cluster (or predefined, or duration-curve variant)
     clustering_duration = 0.0
@@ -181,6 +242,7 @@ def run_pipeline(
                 cluster,
                 representation_dict,
                 n_timesteps_per_period,
+                weighted_candidates=weighted_candidates,
             )
         else:
             cluster_centers, cluster_center_indices, cluster_order = (
@@ -191,6 +253,7 @@ def run_pipeline(
                     cluster,
                     representation_dict,
                     n_timesteps_per_period,
+                    weighted_candidates=weighted_candidates,
                 )
             )
         clustering_duration = time.time() - t_start
@@ -229,7 +292,8 @@ def run_pipeline(
             cluster_counts,
             extreme_cluster_idx,
             period_profiles.profiles_dataframe,
-            norm_data,
+            norm_data.original_data,
+            norm_data.normalize_column_means,
             n_timesteps_per_period,
             rescale_exclude_columns,
         )
@@ -296,7 +360,6 @@ def run_pipeline(
     accuracy_df = compute_accuracy(
         norm_data.values,
         normalized_predicted,
-        norm_data,
     )
 
     # Restore original column order in output DataFrames

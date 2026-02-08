@@ -20,15 +20,21 @@ def cluster_periods(
     cluster: ClusterConfig,
     representation_dict: dict | None,
     n_timesteps_per_period: int,
+    weighted_candidates: np.ndarray | None = None,
 ) -> tuple[list, list | None, np.ndarray]:
     """Run clustering via aggregate_periods.
 
-    Replicates monolith lines 1172-1188.
+    If weighted_candidates is provided, clustering uses weighted data for
+    distance calculation but representations are computed from unweighted
+    candidates.
 
     Returns (cluster_centers, cluster_center_indices, cluster_order).
     """
+    clustering_input = (
+        weighted_candidates if weighted_candidates is not None else candidates
+    )
     centers, center_indices, order = aggregate_periods(
-        candidates,
+        clustering_input,
         n_clusters=n_clusters,
         n_iter=100,
         solver=cluster.solver,
@@ -36,6 +42,9 @@ def cluster_periods(
         representation_method=cluster.get_representation(),
         representation_dict=representation_dict,
         n_timesteps_per_period=n_timesteps_per_period,
+        representation_candidates=candidates
+        if weighted_candidates is not None
+        else None,
     )
     return centers, center_indices, order
 
@@ -47,6 +56,7 @@ def cluster_sorted_periods(
     cluster: ClusterConfig,
     representation_dict: dict | None,
     n_timesteps_per_period: int,
+    weighted_candidates: np.ndarray | None = None,
 ) -> tuple[list, list | None, np.ndarray]:
     """Duration-curve clustering: sort descending, cluster, pick medoid from original.
 

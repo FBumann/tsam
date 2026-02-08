@@ -29,11 +29,10 @@ class PredefParams:
 class NormalizedData:
     """Carries everything needed for denormalization."""
 
-    values: pd.DataFrame  # normalized + weighted time series
+    values: pd.DataFrame  # normalized (unweighted) time series
     scaler: MinMaxScaler  # fitted on original, reusable for inverse_transform
     normalized_mean: pd.Series  # mean before normalize_column_means division
     original_data: pd.DataFrame  # for bounds check + rescale upper bound
-    weights: dict[str, float] | None  # per-column weighting factors
     normalize_column_means: (
         bool  # whether normalize_column_means normalization was applied
     )

@@ -106,7 +106,7 @@ For a quick overview of the most common terms, see the
 | Term | Definition | Old code | New code |
 |------|-----------|----------|----------|
 | **Typical Period** | User-facing synonym for **representative**. The representative profile denormalized to original units. | `typicalPeriods` | `cluster_representatives` (in `AggregationResult`) |
-| **Cluster Weight** | Number of original periods assigned to a cluster. May be fractional if time series length isn't an integer multiple of period duration. | `_clusterPeriodNoOccur` | `cluster_weights` |
+| **Cluster Count** | Number of original periods assigned to a cluster. May be fractional if time series length isn't an integer multiple of period duration. | `_clusterPeriodNoOccur` | `cluster_counts` |
 | **Reconstruction** | Approximation of the original time series: replace each period with its cluster's representative. | `predictedData` | `reconstructed` |
 | **Residuals** | Difference: original minus reconstruction. | (computed ad-hoc) | `residuals` |
 
@@ -142,7 +142,7 @@ For a quick overview of the most common terms, see the
 |---|---|
 | `clusterCenters` vs `clusterPeriods` (trimmed centers) | Single name: `representatives`. Trim immediately after computation. |
 | `clusterOrder` (not an ordering!) | `cluster_assignments` |
-| `clusterPeriodNoOccur` (double negative) | `cluster_weights` |
+| `clusterPeriodNoOccur` (double negative) | `cluster_counts` |
 | `typicalPeriods` vs `normalizedTypicalPeriods` | `representatives` (normalized internal) / `cluster_representatives` (denormalized output) |
 | `candidates` (candidates for what?) | `period_profiles` (or `weighted_profiles` after weighting) |
 | `sameMean` (cryptic bool) | `normalize_column_means` |
