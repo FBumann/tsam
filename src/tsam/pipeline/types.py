@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import numpy as np
@@ -56,7 +56,7 @@ class PipelineResult:
     """Single handoff from pipeline to api.py / config.py."""
 
     typical_periods: pd.DataFrame  # denormalized, MultiIndex (cluster, timestep)
-    cluster_weights: dict[int, Any]
+    cluster_counts: dict[int, float]
     n_timesteps_per_period: int
     time_index: pd.Index
     original_data: pd.DataFrame

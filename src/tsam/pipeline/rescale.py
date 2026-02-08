@@ -76,6 +76,10 @@ def rescale_representatives(
             scale_ub = (
                 scale_ub * original_data[column].max() / original_data[column].mean()
             )
+        # Weights widen the clip bound because the normalized values were
+        # multiplied by the weight during normalization. A weight of 2.0
+        # doubles the values, so the upper bound must also be doubled to
+        # avoid premature clipping.
         if weights and column in weights:
             scale_ub = scale_ub * weights[column]
 

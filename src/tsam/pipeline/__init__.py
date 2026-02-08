@@ -218,15 +218,15 @@ def run_pipeline(
         if predef is not None and predef.extreme_cluster_idx is not None:
             extreme_cluster_idx = list(predef.extreme_cluster_idx)
 
-    # Step 7: Compute cluster weights
-    cluster_period_no_occur = _count_occurrences(cluster_order)
+    # Step 7: Compute cluster counts (how many original periods per cluster)
+    cluster_counts = _count_occurrences(cluster_order)
 
     # Step 8: Rescale if requested
     rescale_deviations: dict = {}
     if rescale_cluster_periods:
         cluster_periods_list, rescale_deviations = rescale_representatives(  # type: ignore[assignment]
             cluster_periods_list,
-            cluster_period_no_occur,
+            cluster_counts,
             extreme_cluster_idx,
             period_profiles.profiles_dataframe,
             norm_data,
@@ -242,7 +242,7 @@ def run_pipeline(
             if isinstance(cluster_order, list)
             else int(cluster_order[-1])
         )
-        cluster_period_no_occur[last_cluster] -= (
+        cluster_counts[last_cluster] -= (
             1 - float(len(data) % n_timesteps_per_period) / n_timesteps_per_period
         )
 
@@ -326,7 +326,7 @@ def run_pipeline(
     # Step 16: Return PipelineResult
     return PipelineResult(
         typical_periods=typical_periods,
-        cluster_weights=cluster_period_no_occur,
+        cluster_counts=cluster_counts,
         n_timesteps_per_period=n_timesteps_per_period,
         time_index=period_profiles.time_index,
         original_data=original_data_out,
@@ -453,6 +453,9 @@ def _build_clustering_result(
         temporal_resolution=temporal_resolution,
         n_timesteps_per_period=n_timesteps_per_period,
         extreme_cluster_indices=extreme_cluster_indices_tuple,
+        column_weights=tuple(sorted(cluster_config.weights.items()))
+        if cluster_config.weights
+        else None,
         cluster_config=cluster_config,
         segment_config=segment_config,
         extremes_config=extremes_config,
