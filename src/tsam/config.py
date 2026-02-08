@@ -197,10 +197,10 @@ class ClusterConfig:
         Higher weight = more influence on clustering.
         Example: {"demand": 2.0, "solar": 1.0}
 
-        Note: Weights are applied by multiplying normalized column values, which
-        affects not only clustering distance but also rescaling bounds (higher
-        weight = wider allowed range during rescaling). Columns not listed
-        default to weight 1.0.
+        Weights are applied to a separate copy of the candidate matrix used
+        only for clustering distance. They do not affect normalization,
+        rescaling, denormalization, reconstruction, or accuracy computation.
+        Columns not listed default to weight 1.0.
 
     normalize_column_means : bool, default False
         Normalize all columns to the same mean before clustering.
