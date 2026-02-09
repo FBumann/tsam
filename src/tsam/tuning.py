@@ -819,10 +819,26 @@ def find_pareto_front(
 
     if not tune_segments:
         # Cluster-only mode: vary n_clusters, no segmentation
-        max_clusters = min(max_periods, max_timesteps // timesteps_per_period)
-        if max_clusters < 1:
-            max_clusters = 1
-        configs = [(n_c, timesteps_per_period) for n_c in range(1, max_clusters + 1)]
+        if timesteps is not None:
+            # Map target timesteps to n_clusters values
+            cluster_set: set[int] = set()
+            for target in timesteps:
+                n_c = target // timesteps_per_period
+                if 1 <= n_c <= max_periods:
+                    cluster_set.add(n_c)
+            if not cluster_set:
+                raise ValueError(
+                    "No valid cluster counts for given timesteps "
+                    f"(timesteps_per_period={timesteps_per_period})"
+                )
+            configs = [(n_c, timesteps_per_period) for n_c in sorted(cluster_set)]
+        else:
+            max_clusters = min(max_periods, max_timesteps // timesteps_per_period)
+            if max_clusters < 1:
+                max_clusters = 1
+            configs = [
+                (n_c, timesteps_per_period) for n_c in range(1, max_clusters + 1)
+            ]
         return _find_pareto_front_clusters_only(
             data=data,
             configs=configs,
