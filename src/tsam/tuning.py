@@ -39,7 +39,7 @@ class _AggregateOpts(TypedDict):
     period_duration: float
     temporal_resolution: float
     cluster: ClusterConfig
-    segment_representation: RepresentationMethod
+    segment_representation: RepresentationMethod | None
     extremes: ExtremeConfig | None
     preserve_column_means: bool
     round_decimals: int | None
@@ -77,10 +77,14 @@ def _test_single_config_file(
             if opts["extremes_dict"] is not None
             else None
         )
-        segments = SegmentConfig(
-            n_segments=n_segments,
-            representation=opts["segment_representation"],
-        )
+        segments: SegmentConfig | None
+        if opts["segment_representation"] is not None:
+            segments = SegmentConfig(
+                n_segments=n_segments,
+                representation=opts["segment_representation"],
+            )
+        else:
+            segments = None
 
         result = aggregate(
             data,
@@ -218,10 +222,14 @@ def _test_configs(
 
         for n_per, n_seg in iterator:
             try:
-                segments = SegmentConfig(
-                    n_segments=n_seg,
-                    representation=aggregate_opts["segment_representation"],
-                )
+                segments: SegmentConfig | None
+                if aggregate_opts["segment_representation"] is not None:
+                    segments = SegmentConfig(
+                        n_segments=n_seg,
+                        representation=aggregate_opts["segment_representation"],
+                    )
+                else:
+                    segments = None
                 result = aggregate(
                     data,
                     n_clusters=n_per,
@@ -482,6 +490,7 @@ def find_optimal_combination(
     show_progress: bool = True,
     save_all_results: bool = False,
     n_jobs: int | None = None,
+    tune_segments: bool = True,
 ) -> TuningResult:
     """Find optimal period/segment combination for a target data reduction.
 
@@ -508,6 +517,7 @@ def find_optimal_combination(
         Clustering configuration.
     segment_representation : str, default "mean"
         How to represent each segment: "mean" or "medoid".
+        Ignored when ``tune_segments=False``.
     extremes : ExtremeConfig, optional
         Configuration for preserving extreme periods.
     preserve_column_means : bool, default True
@@ -527,6 +537,11 @@ def find_optimal_combination(
         a specific number of workers. Parallel execution uses a file-based
         approach where data is saved to a temp file and workers load from
         disk - no DataFrame pickling, safe for sensitive data.
+    tune_segments : bool, default True
+        If True (default), search over both n_clusters and n_segments.
+        If False, only vary n_clusters and keep each period at full
+        temporal resolution (no segmentation). Useful when you only
+        want to find the optimal number of typical periods.
 
     Returns
     -------
@@ -541,6 +556,10 @@ def find_optimal_combination(
 
     >>> # Use all CPUs for faster search (file-based, no DataFrame pickling)
     >>> result = find_optimal_combination(df, data_reduction=0.01, n_jobs=-1)
+
+    >>> # Tune only n_clusters, no segmentation
+    >>> result = find_optimal_combination(df, data_reduction=0.1,
+    ...                                   tune_segments=False)
     """
     if cluster is None:
         cluster = ClusterConfig()
@@ -562,42 +581,55 @@ def find_optimal_combination(
     timesteps_per_period = int(period_duration_hours / temporal_resolution_hours)
 
     max_periods = n_timesteps // timesteps_per_period
-    max_segments = timesteps_per_period
 
-    # Find valid combinations on the Pareto frontier
-    possible_segments = np.arange(1, max_segments + 1)
-    possible_periods = np.arange(1, max_periods + 1)
+    if tune_segments:
+        max_segments = timesteps_per_period
 
-    combined_timesteps = np.outer(possible_segments, possible_periods)
-    valid_mask = combined_timesteps <= n_timesteps * data_reduction
-    valid_timesteps = combined_timesteps * valid_mask
+        # Find valid combinations on the Pareto frontier
+        possible_segments = np.arange(1, max_segments + 1)
+        possible_periods = np.arange(1, max_periods + 1)
 
-    optimal_periods_idx = np.zeros_like(valid_timesteps, dtype=bool)
-    optimal_periods_idx[
-        np.arange(valid_timesteps.shape[0]),
-        valid_timesteps.argmax(axis=1),
-    ] = True
+        combined_timesteps = np.outer(possible_segments, possible_periods)
+        valid_mask = combined_timesteps <= n_timesteps * data_reduction
+        valid_timesteps = combined_timesteps * valid_mask
 
-    optimal_segments_idx = np.zeros_like(valid_timesteps, dtype=bool)
-    optimal_segments_idx[
-        valid_timesteps.argmax(axis=0),
-        np.arange(valid_timesteps.shape[1]),
-    ] = True
+        optimal_periods_idx = np.zeros_like(valid_timesteps, dtype=bool)
+        optimal_periods_idx[
+            np.arange(valid_timesteps.shape[0]),
+            valid_timesteps.argmax(axis=1),
+        ] = True
 
-    pareto_mask = optimal_periods_idx & optimal_segments_idx
-    pareto_points = np.nonzero(pareto_mask)
+        optimal_segments_idx = np.zeros_like(valid_timesteps, dtype=bool)
+        optimal_segments_idx[
+            valid_timesteps.argmax(axis=0),
+            np.arange(valid_timesteps.shape[1]),
+        ] = True
 
-    configs_to_test = [
-        (int(possible_periods[per_idx]), int(possible_segments[seg_idx]))
-        for seg_idx, per_idx in zip(pareto_points[0], pareto_points[1])
-    ]
+        pareto_mask = optimal_periods_idx & optimal_segments_idx
+        pareto_points = np.nonzero(pareto_mask)
+
+        configs_to_test = [
+            (int(possible_periods[per_idx]), int(possible_segments[seg_idx]))
+            for seg_idx, per_idx in zip(pareto_points[0], pareto_points[1])
+        ]
+    else:
+        # Cluster-only mode: vary n_clusters from 1 to max achievable
+        max_clusters = int(
+            np.floor(data_reduction * n_timesteps / timesteps_per_period)
+        )
+        max_clusters = min(max_clusters, max_periods)
+        if max_clusters < 1:
+            max_clusters = 1
+        configs_to_test = [
+            (n_c, timesteps_per_period) for n_c in range(1, max_clusters + 1)
+        ]
 
     # Bundle fixed aggregate parameters
     aggregate_opts: _AggregateOpts = {
         "period_duration": period_duration_hours,
         "temporal_resolution": temporal_resolution_hours,
         "cluster": cluster,
-        "segment_representation": segment_representation,
+        "segment_representation": segment_representation if tune_segments else None,
         "extremes": extremes,
         "preserve_column_means": preserve_column_means,
         "round_decimals": round_decimals,
@@ -662,6 +694,7 @@ def find_pareto_front(
     numerical_tolerance: float = 1e-13,
     show_progress: bool = True,
     n_jobs: int | None = None,
+    tune_segments: bool = True,
 ) -> TuningResult:
     """Find all Pareto-optimal aggregations from 1 period to full resolution.
 
@@ -694,6 +727,7 @@ def find_pareto_front(
         Clustering configuration.
     segment_representation : str, default "mean"
         How to represent each segment: "mean" or "medoid".
+        Ignored when ``tune_segments=False``.
     extremes : ExtremeConfig, optional
         Configuration for preserving extreme periods.
     preserve_column_means : bool, default True
@@ -708,6 +742,11 @@ def find_pareto_front(
         Number of parallel jobs for testing configurations.
         If None or 1, runs sequentially. Use -1 for all available CPUs.
         During steepest-descent phase, tests both directions in parallel.
+    tune_segments : bool, default True
+        If True (default), search over both n_clusters and n_segments.
+        If False, only vary n_clusters and keep each period at full
+        temporal resolution (no segmentation). Useful when you only
+        want to find the optimal number of typical periods.
 
     Returns
     -------
@@ -735,6 +774,9 @@ def find_pareto_front(
 
     >>> # Explore a specific list of timestep targets
     >>> pareto = find_pareto_front(df, timesteps=[10, 50, 100, 200, 500])
+
+    >>> # Tune only n_clusters, no segmentation
+    >>> pareto = find_pareto_front(df, tune_segments=False)
     """
     if cluster is None:
         cluster = ClusterConfig()
@@ -766,7 +808,7 @@ def find_pareto_front(
         "period_duration": period_duration_hours,
         "temporal_resolution": temporal_resolution_hours,
         "cluster": cluster,
-        "segment_representation": segment_representation,
+        "segment_representation": segment_representation if tune_segments else None,
         "extremes": extremes,
         "preserve_column_means": preserve_column_means,
         "round_decimals": round_decimals,
@@ -774,6 +816,20 @@ def find_pareto_front(
     }
 
     n_workers = _get_n_workers(n_jobs)
+
+    if not tune_segments:
+        # Cluster-only mode: vary n_clusters, no segmentation
+        max_clusters = min(max_periods, max_timesteps // timesteps_per_period)
+        if max_clusters < 1:
+            max_clusters = 1
+        configs = [(n_c, timesteps_per_period) for n_c in range(1, max_clusters + 1)]
+        return _find_pareto_front_clusters_only(
+            data=data,
+            configs=configs,
+            aggregate_opts=aggregate_opts,
+            show_progress=show_progress,
+            n_workers=n_workers,
+        )
 
     # If specific timesteps are provided, use targeted exploration
     if timesteps is not None:
@@ -796,6 +852,55 @@ def find_pareto_front(
         aggregate_opts=aggregate_opts,
         show_progress=show_progress,
         n_workers=n_workers,
+    )
+
+
+def _find_pareto_front_clusters_only(
+    data: pd.DataFrame,
+    configs: list[tuple[int, int]],
+    aggregate_opts: _AggregateOpts,
+    show_progress: bool,
+    n_workers: int,
+) -> TuningResult:
+    """Find Pareto front varying only n_clusters (no segmentation)."""
+    results = _test_configs(
+        configs,
+        data,
+        aggregate_opts,
+        n_workers,
+        show_progress=show_progress,
+        progress_desc="Testing cluster counts",
+    )
+
+    history: list[dict] = []
+    all_results: list[AggregationResult] = []
+    best_rmse = float("inf")
+    best_result: AggregationResult | None = None
+    best_n_clusters = 0
+    best_n_segments = 0
+
+    for n_clusters, n_segments, rmse, agg_result in results:
+        if agg_result is not None:
+            history.append(
+                {"n_clusters": n_clusters, "n_segments": n_segments, "rmse": rmse}
+            )
+            all_results.append(agg_result)
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_result = agg_result
+                best_n_clusters = n_clusters
+                best_n_segments = n_segments
+
+    if best_result is None:
+        raise ValueError("No valid configuration found")
+
+    return TuningResult(
+        n_clusters=best_n_clusters,
+        n_segments=best_n_segments,
+        rmse=best_rmse,
+        history=history,
+        best_result=best_result,
+        all_results=all_results,
     )
 
 

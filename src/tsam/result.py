@@ -161,7 +161,8 @@ class AggregationResult:
         which is the authoritative source. Note: cluster_weights may
         have more entries than actual cluster IDs due to tsam quirks.
         """
-        return self.cluster_representatives.index.get_level_values(0).nunique()
+        result: int = self.cluster_representatives.index.get_level_values(0).nunique()
+        return result
 
     @cached_property
     def n_segments(self) -> int | None:
@@ -241,7 +242,8 @@ class AggregationResult:
         >>> result = tsam.aggregate(df, n_clusters=8)
         >>> result.residuals.mean()  # Should be close to zero
         """
-        return self.original - self.reconstructed
+        result: pd.DataFrame = self.original - self.reconstructed
+        return result
 
     def to_dict(self) -> dict:
         """Export results as a dictionary for serialization.

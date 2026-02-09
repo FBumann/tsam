@@ -666,6 +666,71 @@ class TestTuningEquivalence:
             assert r.accuracy is not None
 
 
+class TestClusterOnlyTuning:
+    """Test tune_segments=False mode (cluster-only tuning without segmentation)."""
+
+    def test_find_optimal_combination_clusters_only(self, small_data):
+        """find_optimal_combination with tune_segments=False returns a valid result."""
+        result = find_optimal_combination(
+            small_data,
+            data_reduction=0.1,
+            period_duration=12,
+            show_progress=False,
+            tune_segments=False,
+        )
+
+        timesteps_per_period = 12  # 12h period / 1h resolution
+        assert result.n_clusters >= 1
+        assert result.n_segments == timesteps_per_period
+        assert result.rmse >= 0
+        assert len(result.history) >= 1
+        assert result.best_result is not None
+
+    def test_find_pareto_front_clusters_only(self, small_data):
+        """find_pareto_front with tune_segments=False returns monotonically decreasing RMSE."""
+        pareto = find_pareto_front(
+            small_data,
+            period_duration=12,
+            show_progress=False,
+            tune_segments=False,
+        )
+
+        timesteps_per_period = 12
+        rmse_history = pareto.summary["rmse"].tolist()
+
+        # Should have multiple results
+        assert len(rmse_history) > 1
+
+        # RMSE should be monotonically decreasing (or equal)
+        for i in range(1, len(rmse_history)):
+            assert rmse_history[i] <= rmse_history[i - 1] + 1e-10
+
+        # All n_segments should be timesteps_per_period (no segmentation)
+        for h in pareto.history:
+            assert h["n_segments"] == timesteps_per_period
+
+        # Last RMSE should be 0 (full resolution = all periods used)
+        assert rmse_history[-1] < 1e-10
+
+    def test_clusters_only_full_period_resolution(self, small_data):
+        """Verify that cluster-only tuning produces results with full period resolution."""
+        result = find_optimal_combination(
+            small_data,
+            data_reduction=0.5,
+            period_duration=12,
+            show_progress=False,
+            tune_segments=False,
+            save_all_results=True,
+        )
+
+        timesteps_per_period = 12
+        # Each result should have full temporal resolution within each period
+        for agg_result in result.all_results:
+            n_rows = len(agg_result.cluster_representatives)
+            n_clusters = n_rows // timesteps_per_period
+            assert n_rows == n_clusters * timesteps_per_period
+
+
 class TestSubhourlyResolution:
     """Test that new API handles sub-hourly resolution correctly."""
 
