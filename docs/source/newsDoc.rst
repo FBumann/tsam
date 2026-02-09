@@ -60,15 +60,11 @@ Improvements
 
 * **Column weights preserved during transfer**: ``ClusteringResult.apply()`` now replays
   the original ``ClusterConfig.weights`` so that transferred results use the same
-  normalization, rescaling, and accuracy computation as the source aggregation.
+  clustering distance when recomputing representatives.
 
 * **Fixed type annotation**: ``cluster_counts`` (formerly ``cluster_weights``) is now
   correctly annotated as ``dict[int, float]`` since partial-period adjustment can produce
   fractional values.
-
-* **Documented column-weight side effects**: Added notes to ``ClusterConfig.weights``
-  docstring and inline comments in ``rescale.py`` explaining that per-column weights
-  affect rescaling bounds, not only clustering distance.
 
 *********************
 Release version 3.1.1

@@ -39,9 +39,13 @@ def _infer_resolution(data: pd.DataFrame) -> float:
 
 
 def _count_occurrences(cluster_order: list | np.ndarray) -> dict[int, float]:
-    """Count how many original periods each cluster represents."""
+    """Count how many original periods each cluster represents.
+
+    Returns float values because partial-period adjustment (step 9)
+    can produce fractional counts downstream.
+    """
     nums, counts = np.unique(cluster_order, return_counts=True)
-    return {int(num): int(counts[ii]) for ii, num in enumerate(nums)}
+    return {int(num): float(counts[ii]) for ii, num in enumerate(nums)}
 
 
 def _representatives_to_dataframe(
@@ -102,44 +106,49 @@ MIN_WEIGHT = 1e-6
 
 def _weight_candidates(
     candidates: np.ndarray,
-    weights: dict[str, float],
-    n_columns: int,
+    weight_values: list[float],
     n_timesteps: int,
 ) -> np.ndarray:
     """Apply per-column weights to the flat candidates array.
 
     Each row of candidates has shape (n_columns * n_timesteps,) with columns
     interleaved in the MultiIndex order (col0_t0, col0_t1, ..., col1_t0, ...).
+
+    ``weight_values`` must have exactly one entry per column, in the same
+    (alphabetically sorted) order as the columns in the candidates array.
     """
     weighted: np.ndarray = candidates.copy()
-    for ci in range(n_columns):
+    for ci, w in enumerate(weight_values):
         start = ci * n_timesteps
         end = start + n_timesteps
-        # Weights are looked up by column order; caller must ensure columns
-        # are sorted alphabetically (matching the sorted normalization).
-        # We apply the weight vector positionally here.
-        weighted[:, start:end] *= (
-            list(weights.values())[ci] if ci < len(weights) else 1.0
-        )
+        weighted[:, start:end] *= w
     return weighted
 
 
 def _build_weight_vector(
     columns: pd.Index,
     weights: dict[str, float] | None,
-) -> dict[str, float] | None:
-    """Build a weight dict with MIN_WEIGHT enforcement, sorted by column order."""
+) -> list[float] | None:
+    """Build a weight list aligned to *columns*, defaulting unlisted columns to 1.0.
+
+    Returns ``None`` if all weights are 1.0 (no weighting needed).
+    """
     if not weights:
         return None
-    result = {}
+    result: list[float] = []
+    any_non_unit = False
     for col in columns:
-        if col in weights:
-            w = weights[col]
-            if w < MIN_WEIGHT:
-                print(f'weight of "{col}" set to the minimal tolerable weighting')
-                w = MIN_WEIGHT
-            result[col] = w
-    return result if result else None
+        w = weights.get(col, 1.0)
+        if w < MIN_WEIGHT:
+            warnings.warn(
+                f'weight of "{col}" set to the minimal tolerable weighting',
+                stacklevel=2,
+            )
+            w = MIN_WEIGHT
+        if w != 1.0:
+            any_non_unit = True
+        result.append(w)
+    return result if any_non_unit else None
 
 
 def _build_representation_dict(
@@ -198,11 +207,10 @@ def run_pipeline(
     # Step 2b: Create weighted candidates for clustering distance (if weights provided)
     validated_weights = _build_weight_vector(norm_data.values.columns, cluster.weights)
     weighted_candidates: np.ndarray | None = None
-    if validated_weights:
+    if validated_weights is not None:
         weighted_candidates = _weight_candidates(
             candidates,
             validated_weights,
-            period_profiles.n_columns,
             period_profiles.n_timesteps_per_period,
         )
 

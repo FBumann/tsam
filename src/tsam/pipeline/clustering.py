@@ -60,7 +60,9 @@ def cluster_sorted_periods(
 ) -> tuple[list, list | None, np.ndarray]:
     """Duration-curve clustering: sort descending, cluster, pick medoid from original.
 
-    Replicates _cluster_sorted_periods (monolith lines 1029-1091).
+    If weighted_candidates is provided, the sorted profiles are weighted
+    before clustering distance computation, but medoids are picked from
+    the unweighted unsorted candidates.
 
     Returns (cluster_centers, cluster_center_indices, cluster_order).
     """
@@ -74,8 +76,18 @@ def cluster_sorted_periods(
     values_3d = profiles_values.copy().reshape(n_periods, n_columns, n_timesteps)
     sorted_values = (-np.sort(-values_3d, axis=2, kind="stable")).reshape(n_periods, -1)
 
+    # If weights are active, also sort the weighted profiles and cluster on those
+    if weighted_candidates is not None:
+        w_3d = weighted_candidates.copy().reshape(n_periods, n_columns, n_timesteps)
+        sorted_weighted = (-np.sort(-w_3d, axis=2, kind="stable")).reshape(
+            n_periods, -1
+        )
+        clustering_input = sorted_weighted
+    else:
+        clustering_input = sorted_values
+
     _alt_centers, center_indices, cluster_order = aggregate_periods(
-        sorted_values,
+        clustering_input,
         n_clusters=n_clusters,
         n_iter=30,
         solver=cluster.solver,
@@ -83,9 +95,12 @@ def cluster_sorted_periods(
         representation_method=cluster.get_representation(),
         representation_dict=representation_dict,
         n_timesteps_per_period=n_timesteps_per_period,
+        representation_candidates=sorted_values
+        if weighted_candidates is not None
+        else None,
     )
 
-    # Pick medoid from original (unsorted) candidates
+    # Pick medoid from original (unsorted, unweighted) candidates
     cluster_centers = []
     for cluster_num in np.unique(cluster_order):
         indice = np.where(cluster_order == cluster_num)[0]
