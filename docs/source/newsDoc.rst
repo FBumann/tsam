@@ -3,6 +3,21 @@ tsam's Change Log
 ##################
 
 *********************
+Release version 3.1.2
+*********************
+
+Bug Fixes
+=========
+
+* Fixed shared ``distributionPeriodWise`` / ``representationDict`` between cluster and segment
+  levels. When both cluster and segment used ``Distribution`` or ``MinMaxMean`` representation
+  objects with different settings, the segment's values silently overwrote the cluster's,
+  corrupting cluster results. The old API now accepts ``segmentDistributionPeriodWise`` and
+  ``segmentRepresentationDict`` parameters that are independent from the cluster-level ones
+  (defaulting to the cluster values when not specified).
+
+
+*********************
 Release version 3.1.1
 *********************
 
