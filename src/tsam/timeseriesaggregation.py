@@ -136,6 +136,8 @@ class TimeSeriesAggregation:
         representationDict=None,
         distributionPeriodWise=True,
         segmentRepresentationMethod=None,
+        segmentRepresentationDict=None,
+        segmentDistributionPeriodWise=None,
         predefClusterOrder=None,
         predefClusterCenterIndices=None,
         predefExtremeClusterIdx=None,
@@ -338,6 +340,10 @@ class TimeSeriesAggregation:
 
         self.segmentRepresentationMethod = segmentRepresentationMethod
 
+        self.segmentRepresentationDict = segmentRepresentationDict
+
+        self.segmentDistributionPeriodWise = segmentDistributionPeriodWise
+
         self.predefClusterOrder = predefClusterOrder
 
         self.predefClusterCenterIndices = predefClusterCenterIndices
@@ -507,6 +513,16 @@ class TimeSeriesAggregation:
         self.representationDict = (
             pd.Series(self.representationDict).sort_index(axis=0).to_dict()
         )
+
+        # default segment-specific params to cluster-level values
+        if self.segmentDistributionPeriodWise is None:
+            self.segmentDistributionPeriodWise = self.distributionPeriodWise
+        if self.segmentRepresentationDict is None:
+            self.segmentRepresentationDict = self.representationDict
+        else:
+            self.segmentRepresentationDict = (
+                pd.Series(self.segmentRepresentationDict).sort_index(axis=0).to_dict()
+            )
 
         # check extremePeriods
         if self.extremePeriodMethod not in self.EXTREME_PERIOD_METHODS:
@@ -1187,8 +1203,8 @@ class TimeSeriesAggregation:
                 self.noSegments,
                 self.timeStepsPerPeriod,
                 representationMethod=self.segmentRepresentationMethod,
-                representationDict=self.representationDict,
-                distributionPeriodWise=self.distributionPeriodWise,
+                representationDict=self.segmentRepresentationDict,
+                distributionPeriodWise=self.segmentDistributionPeriodWise,
                 predefSegmentOrder=self.predefSegmentOrder,
                 predefSegmentDurations=self.predefSegmentDurations,
                 predefSegmentCenters=self.predefSegmentCenters,

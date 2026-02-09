@@ -233,6 +233,31 @@ _NEW_KWARGS: dict[str, dict] = {
         "cluster": ClusterConfig(method="hierarchical"),
         "extremes": ExtremeConfig(method="append", max_value=["Zero"]),
     },
+    "segment_distribution_scope_conflict": {
+        "n_clusters": 8,
+        "period_duration": 24,
+        "cluster": ClusterConfig(
+            method="hierarchical",
+            representation=Distribution(scope="cluster"),
+        ),
+        "segments": SegmentConfig(
+            n_segments=4, representation=Distribution(scope="global")
+        ),
+        "preserve_column_means": False,
+    },
+    "segment_minmaxmean_conflict": {
+        "n_clusters": 8,
+        "period_duration": 24,
+        "cluster": ClusterConfig(
+            method="hierarchical",
+            representation=MinMaxMean(max_columns=["GHI"], min_columns=["T", "Load"]),
+        ),
+        "segments": SegmentConfig(
+            n_segments=4,
+            representation=MinMaxMean(max_columns=["Wind"]),
+        ),
+        "preserve_column_means": False,
+    },
 }
 
 _RTOL: dict[str, float] = {

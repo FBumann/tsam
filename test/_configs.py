@@ -395,6 +395,48 @@ CONFIGS: list[BaseConfig] = [
         },
         only_datasets={"with_zero_column"},
     ),
+    BaseConfig(
+        id="segment_distribution_scope_conflict",
+        old_kwargs={
+            "noTypicalPeriods": 8,
+            "hoursPerPeriod": 24,
+            "clusterMethod": "hierarchical",
+            "representationMethod": "distributionRepresentation",
+            "distributionPeriodWise": True,
+            "segmentation": True,
+            "noSegments": 4,
+            "segmentRepresentationMethod": "distributionRepresentation",
+            "segmentDistributionPeriodWise": False,
+            "rescaleClusterPeriods": False,
+        },
+        only_datasets={"testdata"},
+    ),
+    BaseConfig(
+        id="segment_minmaxmean_conflict",
+        old_kwargs={
+            "noTypicalPeriods": 8,
+            "hoursPerPeriod": 24,
+            "clusterMethod": "hierarchical",
+            "representationMethod": "minmaxmeanRepresentation",
+            "representationDict": {
+                "GHI": "max",
+                "T": "min",
+                "Wind": "mean",
+                "Load": "min",
+            },
+            "segmentation": True,
+            "noSegments": 4,
+            "segmentRepresentationMethod": "minmaxmeanRepresentation",
+            "segmentRepresentationDict": {
+                "GHI": "mean",
+                "T": "mean",
+                "Wind": "max",
+                "Load": "mean",
+            },
+            "rescaleClusterPeriods": False,
+        },
+        only_datasets={"testdata"},
+    ),
 ]
 
 

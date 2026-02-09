@@ -763,5 +763,84 @@ class TestReconstructionEquivalence:
         )
 
 
+class TestSegmentIsolation:
+    """Tests that segment representation choice does not corrupt cluster results."""
+
+    def test_cluster_unaffected_by_segment_scope(self, sample_data):
+        """Cluster representatives must be identical regardless of segment distribution scope."""
+        # Without segmentation
+        result_no_seg = aggregate(
+            sample_data,
+            n_clusters=8,
+            period_duration=24,
+            cluster=ClusterConfig(
+                method="hierarchical",
+                representation=Distribution(scope="cluster"),
+            ),
+            preserve_column_means=False,
+        )
+
+        # With segmentation using a DIFFERENT scope
+        result_with_seg = aggregate(
+            sample_data,
+            n_clusters=8,
+            period_duration=24,
+            cluster=ClusterConfig(
+                method="hierarchical",
+                representation=Distribution(scope="cluster"),
+            ),
+            segments=SegmentConfig(
+                n_segments=4, representation=Distribution(scope="global")
+            ),
+            preserve_column_means=False,
+        )
+
+        # Cluster assignments must be identical
+        np.testing.assert_array_equal(
+            result_no_seg.cluster_assignments,
+            result_with_seg.cluster_assignments,
+        )
+
+    def test_cluster_unaffected_by_segment_minmaxmean(self, sample_data):
+        """Cluster representatives must be identical regardless of segment MinMaxMean config."""
+        # Without segmentation
+        result_no_seg = aggregate(
+            sample_data,
+            n_clusters=8,
+            period_duration=24,
+            cluster=ClusterConfig(
+                method="hierarchical",
+                representation=MinMaxMean(
+                    max_columns=["GHI"], min_columns=["T", "Load"]
+                ),
+            ),
+            preserve_column_means=False,
+        )
+
+        # With segmentation using a DIFFERENT MinMaxMean config
+        result_with_seg = aggregate(
+            sample_data,
+            n_clusters=8,
+            period_duration=24,
+            cluster=ClusterConfig(
+                method="hierarchical",
+                representation=MinMaxMean(
+                    max_columns=["GHI"], min_columns=["T", "Load"]
+                ),
+            ),
+            segments=SegmentConfig(
+                n_segments=4,
+                representation=MinMaxMean(max_columns=["Wind"]),
+            ),
+            preserve_column_means=False,
+        )
+
+        # Cluster assignments must be identical
+        np.testing.assert_array_equal(
+            result_no_seg.cluster_assignments,
+            result_with_seg.cluster_assignments,
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

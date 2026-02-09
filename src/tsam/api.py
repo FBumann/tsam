@@ -555,9 +555,11 @@ def _build_old_params(
             _apply_representation_params(seg_params, seg_rep, data.columns.tolist())
             params["segmentRepresentationMethod"] = seg_params["representationMethod"]
             if "distributionPeriodWise" in seg_params:
-                params["distributionPeriodWise"] = seg_params["distributionPeriodWise"]
+                params["segmentDistributionPeriodWise"] = seg_params[
+                    "distributionPeriodWise"
+                ]
             if "representationDict" in seg_params:
-                params["representationDict"] = seg_params["representationDict"]
+                params["segmentRepresentationDict"] = seg_params["representationDict"]
         else:
             params["segmentRepresentationMethod"] = REPRESENTATION_MAPPING.get(
                 seg_rep, "meanRepresentation"
