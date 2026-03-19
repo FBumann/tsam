@@ -7,9 +7,20 @@ from sklearn.utils import check_array
 np.float_ = np.float64  # type: ignore[attr-defined]
 np.complex_ = np.complex128  # type: ignore[attr-defined]
 
-import pyomo.environ as pyomo
-import pyomo.opt as opt
-from pyomo.contrib import appsi
+
+def _import_pyomo():
+    """Lazy import pyomo with helpful error message."""
+    try:
+        import pyomo.environ as pyomo
+        import pyomo.opt as opt
+        from pyomo.contrib import appsi
+
+        return pyomo, opt, appsi
+    except ImportError:
+        raise ImportError(
+            "The k-medoids clustering method requires pyomo and a solver. "
+            "Install them with: pip install tsam[kmedoids]"
+        ) from None
 
 
 class KMedoids(BaseEstimator, ClusterMixin, TransformerMixin):
@@ -154,6 +165,8 @@ def _setup_k_medoids(distances, n_clusters):
     with an additional constraint of cluster-sizes/populations.
     (W Hess, JB Weaver, HJ Siegfeldt, JN Whelan, and PA Zitlau. Nonpartisan political redistricting by computer. Operations Research, 13(6):998–1006, 1965.)
     """
+    pyomo, _, _ = _import_pyomo()
+
     # Create model
     M = pyomo.ConcreteModel()
 
@@ -215,6 +228,8 @@ def _solve_given_pyomo_model(M, solver="highs"):
     Returns:
         [type]: [description]
     """
+    pyomo, opt, appsi = _import_pyomo()
+
     # create optimization problem
     if solver == "highs":
         solver_instance = appsi.solvers.Highs()

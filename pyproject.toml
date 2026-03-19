@@ -35,16 +35,29 @@ dependencies = [
   "scikit-learn>=1.3.0,<=1.8.0",
   "pandas>=2.2.0,<=3.0.1",
   "numpy>=1.22.4,<=2.4.2",
-  "pyomo>=6.4.8,<=6.10.0",
-  "networkx>=2.5,<=3.6.1",
   "tqdm>=4.21.0,<=4.67.3",
-  "highspy>=1.7.2,<=1.13.1",
 ]
 
 requires-python = ">=3.10,<3.15"
 
 [project.optional-dependencies]
+kmedoids = ["pyomo>=6.4.8,<=6.10.0", "highspy>=1.7.2,<=1.13.1"]
+contiguity = [
+  "pyomo>=6.4.8,<=6.10.0",
+  "highspy>=1.7.2,<=1.13.1",
+  "networkx>=2.5,<=3.6.1",
+]
+full = [
+  "pyomo>=6.4.8,<=6.10.0",
+  "highspy>=1.7.2,<=1.13.1",
+  "networkx>=2.5,<=3.6.1",
+]
+plot = ["plotly>=5.0.0"]
+notebooks = ["notebook>=7.5.0", "plotly>=5.0.0"]
 develop = [
+  "pyomo>=6.4.8,<=6.10.0",
+  "highspy>=1.7.2,<=1.13.1",
+  "networkx>=2.5,<=3.6.1",
   "pytest",
   "pytest-cov",
   "pytest-xdist",
@@ -63,8 +76,6 @@ develop = [
   "plotly>=5.0.0",
   "notebook>=7.5.0",
 ]
-plot = ["plotly>=5.0.0"]
-notebooks = ["notebook>=7.5.0", "plotly>=5.0.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
