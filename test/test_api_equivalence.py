@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 # Old API
-import tsam.hyperparametertuning as old_tune
 import tsam.timeseriesaggregation as old_tsam
 from conftest import TESTDATA_CSV
 
@@ -20,10 +19,7 @@ from tsam import (
     aggregate,
 )
 from tsam.tuning import (
-    find_clusters_for_reduction,
     find_optimal_combination,
-    find_pareto_front,
-    find_segments_for_reduction,
 )
 
 
@@ -539,123 +535,8 @@ class TestRepresentationObjects:
         )
 
 
-class TestTuningEquivalence:
-    """Tests that new tuning functions produce equivalent results to old API."""
-
-    def test_find_clusters_for_reduction(self):
-        """Test find_clusters_for_reduction matches old function."""
-        test_cases = [
-            (100, 10, 0.5),
-            (101, 10, 0.5),
-            (101, 2, 0.5),
-            (8760, 24, 0.01),
-        ]
-
-        for n_timesteps, n_segments, data_reduction in test_cases:
-            old_result = old_tune.get_no_periods_for_data_reduction(
-                n_timesteps, n_segments, data_reduction
-            )
-            new_result = find_clusters_for_reduction(
-                n_timesteps, n_segments, data_reduction
-            )
-            assert old_result == new_result, (
-                f"Mismatch for ({n_timesteps}, {n_segments}, {data_reduction}): "
-                f"old={old_result}, new={new_result}"
-            )
-
-    def test_find_segments_for_reduction(self):
-        """Test find_segments_for_reduction matches old function."""
-        test_cases = [
-            (100, 10, 0.5),
-            (8760, 8, 0.01),
-        ]
-
-        for n_timesteps, n_clusters, data_reduction in test_cases:
-            old_result = old_tune.get_no_segments_for_data_reduction(
-                n_timesteps, n_clusters, data_reduction
-            )
-            new_result = find_segments_for_reduction(
-                n_timesteps, n_clusters, data_reduction
-            )
-            assert old_result == new_result
-
-    def test_find_optimal_combination(self, sample_data):
-        """Test find_optimal_combination matches old identify_optimal_segment_period_combination."""
-        data_reduction = 0.01
-        col = "Wind"
-        data = sample_data[[col]]
-
-        # Old API with default settings to match new API defaults
-        old_tuner = old_tune.HyperTunedAggregations(
-            old_tsam.TimeSeriesAggregation(
-                data,
-                hours_per_period=24,
-                cluster_method="hierarchical",
-                representation_method="durationRepresentation",
-                # Use defaults: distribution_period_wise=True, rescale_cluster_periods=True
-                segmentation=True,
-            )
-        )
-        old_segments, old_periods, old_rmse = (
-            old_tuner.identify_optimal_segment_period_combination(
-                data_reduction=data_reduction
-            )
-        )
-
-        # New API
-        new_result = find_optimal_combination(
-            data,
-            data_reduction=data_reduction,
-            period_duration=24,
-            cluster=ClusterConfig(
-                method="hierarchical",
-                representation="distribution",
-            ),
-            show_progress=False,
-        )
-
-        # Results should match
-        assert new_result.n_clusters == old_periods
-        assert new_result.n_segments == old_segments
-        np.testing.assert_allclose(new_result.rmse, old_rmse, rtol=1e-5)
-
-    def test_find_pareto_front(self, small_data):
-        """Test find_pareto_front produces decreasing RMSE like old API."""
-        # Old API
-        old_tuner = old_tune.HyperTunedAggregations(
-            old_tsam.TimeSeriesAggregation(
-                small_data,
-                hours_per_period=12,
-                cluster_method="hierarchical",
-                representation_method="meanRepresentation",
-                distribution_period_wise=False,
-                rescale_cluster_periods=False,
-                segmentation=True,
-            )
-        )
-        old_tuner.identify_pareto_optimal_aggregation()
-        old_rmse_history = old_tuner._rmse_history
-
-        # New API
-        new_results = find_pareto_front(
-            small_data,
-            period_duration=12,
-            cluster=ClusterConfig(method="hierarchical", representation="mean"),
-            show_progress=False,
-        )
-
-        # Get RMSE history from summary
-        new_rmse_history = new_results.summary["rmse"].tolist()
-
-        # RMSE histories should match between old and new API
-        np.testing.assert_allclose(new_rmse_history, old_rmse_history, rtol=1e-10)
-
-        # RMSE should be monotonically decreasing (or equal)
-        for i in range(1, len(new_rmse_history)):
-            assert new_rmse_history[i] <= new_rmse_history[i - 1] + 1e-10
-
-        # Last RMSE should be 0 (full resolution)
-        assert new_rmse_history[-1] < 1e-10
+class TestTuningNewAPI:
+    """Tests for the new tuning API (standalone, not comparing to old API)."""
 
     def test_find_optimal_combination_save_all_results(self, small_data):
         """Test that find_optimal_combination with save_all_results stores all AggregationResults."""

@@ -78,37 +78,3 @@ class TestTimeSeriesAggregationCompat:
         assert list(agg.clusterOrder) == list(agg.cluster_order)
         assert agg.clusterPeriodNoOccur == agg.cluster_period_no_occur
         assert agg.clusterPeriodDict == agg.cluster_period_dict
-
-
-class TestHyperparameterTuningCompat:
-    """Verify old camelCase function and method names still work."""
-
-    def test_old_function_aliases(self):
-        from tsam.hyperparametertuning import (
-            get_no_periods_for_data_reduction,
-            get_no_segments_for_data_reduction,
-            getNoPeriodsForDataReduction,
-            getNoSegmentsForDataReduction,
-        )
-
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            assert getNoPeriodsForDataReduction(
-                8760, 24, 0.1
-            ) == get_no_periods_for_data_reduction(8760, 24, 0.1)
-            assert getNoSegmentsForDataReduction(
-                8760, 10, 0.1
-            ) == get_no_segments_for_data_reduction(8760, 10, 0.1)
-
-    def test_save_aggregation_history_old_kwarg(self, raw):
-        from tsam.hyperparametertuning import HyperTunedAggregations
-        from tsam.timeseriesaggregation import TimeSeriesAggregation
-
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            base = TimeSeriesAggregation(raw, no_typical_periods=8, segmentation=True)
-            agg = HyperTunedAggregations(base, saveAggregationHistory=False)
-
-        future_warnings = [x for x in w if issubclass(x.category, FutureWarning)]
-        assert len(future_warnings) >= 1
-        assert agg.save_aggregation_history is False
