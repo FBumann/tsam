@@ -6,15 +6,36 @@ import numpy as np
 np.float_ = np.float64  # type: ignore[attr-defined]
 np.complex_ = np.complex128  # type: ignore[attr-defined]
 
-import networkx as nx
-import pyomo.environ as pyomo
-
 from tsam.utils.k_medoids_exact import (
     _setup_k_medoids,
     _solve_given_pyomo_model,
 )
 
-# class KMedoids_contiguity(KMedoids):
+
+def _import_networkx():
+    """Lazy import networkx with helpful error message."""
+    try:
+        import networkx as nx
+
+        return nx
+    except ImportError:
+        raise ImportError(
+            "The contiguity-constrained clustering method requires networkx. "
+            "Install it with: pip install tsam[contiguity]"
+        ) from None
+
+
+def _import_pyomo():
+    """Lazy import pyomo with helpful error message."""
+    try:
+        import pyomo.environ as pyomo
+
+        return pyomo
+    except ImportError:
+        raise ImportError(
+            "The contiguity-constrained clustering method requires pyomo. "
+            "Install it with: pip install tsam[contiguity]"
+        ) from None
 
 
 def k_medoids_contiguity(
@@ -24,6 +45,9 @@ def k_medoids_contiguity(
 
     The algorithm is based on: Oehrlein and Hauner (2017): A cutting-plane method for adjacency-constrained spatial aggregation
     """
+    nx = _import_networkx()
+    pyomo = _import_pyomo()
+
     # First transform the network to a networkx instance which is required for cut generation
     G = _contiguity_to_graph(adjacency, distances=distances)
 
@@ -122,6 +146,7 @@ def _contiguity_to_graph(adjacency, distances=None):
     Returns:
         nx.Graph: Graph with every index as node name.
     """
+    nx = _import_networkx()
     rows, cols = np.where(adjacency == 1)
     G = nx.Graph()
     if distances is None:
