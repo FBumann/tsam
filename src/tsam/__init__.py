@@ -66,7 +66,7 @@ from tsam.options import options
 from tsam.result import AccuracyMetrics, AggregationResult
 
 # Legacy imports for backward compatibility
-from tsam.timeseriesaggregation import TimeSeriesAggregation, unstackToPeriods
+from tsam.timeseriesaggregation import TimeSeriesAggregation
 
 try:
     from tsam._version import __version__
@@ -88,6 +88,5 @@ __all__ = [
     "options",
     "plot",
     "tuning",
-    "unstackToPeriods",  # Legacy alias
     "unstack_to_periods",
 ]

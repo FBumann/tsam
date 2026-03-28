@@ -76,10 +76,6 @@ def unstack_to_periods(time_series, time_steps_per_period):
     return unstacked_time_series, time_index
 
 
-# Legacy alias
-unstackToPeriods = unstack_to_periods
-
-
 _PARAM_ALIASES = {
     "timeSeries": "time_series",
     "noTypicalPeriods": "no_typical_periods",
