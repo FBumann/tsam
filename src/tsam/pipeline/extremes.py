@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 if TYPE_CHECKING:
-    import numpy as np
     import pandas as pd
 
     from tsam.config import ExtremeConfig
@@ -163,39 +164,34 @@ def add_extreme_periods(
         # Build set of extreme period step numbers for quick lookup
         extreme_step_nos = {extreme_periods[pt]["step_no"] for pt in extreme_periods}
 
-        for i, c_period in enumerate(new_cluster_order):
-            # Skip periods that are themselves an extreme period for a different type
-            if i in extreme_step_nos:
-                # Only reassign if this period IS the extreme for exactly one type
-                own_types = [
-                    pt for pt in extreme_periods if extreme_periods[pt]["step_no"] == i
-                ]
-                if len(own_types) == 1:
-                    new_cluster_order[i] = extreme_periods[own_types[0]][
-                        "new_cluster_no"
-                    ]
-                continue
+        for i in extreme_step_nos:
+            # Only reassign if this period IS the extreme for exactly one type
+            own_types = [
+                pt for pt in extreme_periods if extreme_periods[pt]["step_no"] == i
+            ]
+            if len(own_types) == 1:
+                new_cluster_order[i] = extreme_periods[own_types[0]]["new_cluster_no"]
 
-            cluster_dist = sum(
-                (profiles_df.iloc[i].values - cluster_centers[c_period]) ** 2
+        if extreme_periods:
+            profiles = profiles_df.to_numpy()
+            own_centers = np.asarray(cluster_centers)[np.asarray(cluster_order)]
+            own_dists = ((profiles - own_centers) ** 2).sum(axis=1)
+
+            extreme_profiles = np.asarray(
+                [extreme_periods[pt]["profile"] for pt in extreme_periods]
             )
-            # Find the closest extreme period (deterministic: first match with smallest distance)
-            best_extreme = None
-            best_dist = cluster_dist
-            for extrem_period_type in extreme_periods:
-                extperiod_dist = sum(
-                    (
-                        profiles_df.iloc[i].values
-                        - extreme_periods[extrem_period_type]["profile"]
-                    )
-                    ** 2
-                )
-                if extperiod_dist < best_dist:
-                    best_dist = extperiod_dist
-                    best_extreme = extrem_period_type
+            new_cluster_nos = [
+                extreme_periods[pt]["new_cluster_no"] for pt in extreme_periods
+            ]
+            extreme_dists = ((profiles[:, None, :] - extreme_profiles) ** 2).sum(axis=2)
+            # argmin keeps the first type on ties, matching the previous
+            # strict-improvement loop over extreme_periods in dict order
+            best_types = extreme_dists.argmin(axis=1)
+            best_dists = extreme_dists[np.arange(len(profiles)), best_types]
 
-            if best_extreme is not None:
-                new_cluster_order[i] = extreme_periods[best_extreme]["new_cluster_no"]
+            for i in np.nonzero(best_dists < own_dists)[0]:
+                if i not in extreme_step_nos:
+                    new_cluster_order[int(i)] = new_cluster_nos[best_types[i]]
 
     elif extremes.method == "replace":
         new_cluster_centers = list(cluster_centers)
