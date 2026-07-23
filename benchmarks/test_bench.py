@@ -54,6 +54,21 @@ def _wide_columns(n_columns: int) -> pd.DataFrame:
     return tiled.iloc[:, :n_columns]
 
 
+def _years(n: int) -> pd.DataFrame:
+    """testdata tiled to ``n`` years with a continuous hourly index."""
+    base = _testdata()
+    df = pd.concat([base] * n, ignore_index=True)
+    df.index = pd.date_range("2020-01-01", periods=len(df), freq="h")
+    return df
+
+
+def _quarter_hourly() -> pd.DataFrame:
+    """testdata linearly interpolated to 15-min resolution (35,040 rows)."""
+    base = _testdata()
+    idx = pd.date_range(base.index[0], periods=len(base) * 4, freq="15min")
+    return base.reindex(idx).interpolate(method="linear").ffill()
+
+
 def _bench(benchmark, data: pd.DataFrame, **kwargs) -> None:
     benchmark.pedantic(
         lambda: aggregate(data, N_CLUSTERS, **kwargs),
@@ -135,6 +150,26 @@ def test_feature(benchmark, feature):
     elif feature == "no_rescale":
         kwargs["preserve_column_means"] = False
     _bench(benchmark, _testdata(), **kwargs)
+
+
+@pytest.mark.benchmark(group="resolution")
+def test_resolution_15min(benchmark):
+    """One year at 15-min resolution: 96 steps per daily period stress the reshapes."""
+    benchmark.extra_info["steps_per_period"] = 96
+    _bench(benchmark, _quarter_hourly())
+
+
+@pytest.mark.benchmark(group="extremes-scale")
+def test_extremes_3y(benchmark):
+    """new_cluster extreme handling over 3 years; reassignment scales with period count."""
+    benchmark.extra_info["n_timesteps"] = 3 * 8760
+    _bench(
+        benchmark,
+        _years(3),
+        extremes=ExtremeConfig(
+            method="new_cluster", max_value=["Load"], min_value=["T"]
+        ),
+    )
 
 
 @pytest.mark.benchmark(group="disaggregate")
