@@ -223,6 +223,19 @@ def test_large_scenarios(benchmark):
     )
 
 
+@pytest.mark.benchmark(group="accuracy")
+def test_accuracy(benchmark):
+    """Lazy accuracy metrics on a fresh 48-column result each round."""
+    benchmark.extra_info["n_columns"] = 48
+    data = _wide_columns(48)
+    benchmark.pedantic(
+        lambda result: result.accuracy,
+        setup=lambda: ((aggregate(data, N_CLUSTERS),), {}),
+        rounds=ROUNDS,
+        warmup_rounds=1,
+    )
+
+
 @pytest.mark.benchmark(group="disaggregate")
 def test_disaggregate(benchmark):
     """Expanding typical-period data back to the full datetime index.
