@@ -127,49 +127,78 @@ def duration_representation(
             [int(mask.sum()) for mask in member_masks], n_timesteps_per_period
         )
 
-        centers = np.empty((n_clusters, num_attributes, n_timesteps_per_period))
-        for a in range(num_attributes):
-            attr_values = candidates_3d[:, a, :]
-            # per-cluster centroid value of every time step, flattened row-major
-            cluster_means = np.concatenate(
-                [np.round(attr_values[mask].mean(axis=0), 10) for mask in member_masks]
-            )
-            # sort all (cluster, time step) slots by centroid value
-            order = np.argsort(cluster_means, kind="stable")
-            sorted_weights = weights[order]
-            # sort all values of the original time series
-            sorted_attr = np.sort(attr_values.ravel(), kind="stable")
-            # take mean of sections of the original duration curve according to
-            # the cluster and its weight the respective section is assigned to.
-            # reduceat needs strictly increasing offsets: a zero-size section
-            # would not crash but silently corrupt its slot. Sizes are cluster
-            # occurrence counts (>= 1 by construction), so this only fires if
-            # an upstream refactor lets an empty cluster through.
-            if np.any(sorted_weights <= 0):
-                raise ValueError(
-                    "Internal error: empty cluster reached the duration "
-                    "representation (zero-size duration-curve section)."
-                )
-            section_starts = np.concatenate(([0], np.cumsum(sorted_weights[:-1])))
-            representation_values = (
-                np.add.reduceat(sorted_attr, section_starts) / sorted_weights
-            )
-            # respect max and min of the attributes
-            if represent_min_max:
-                representation_values = _represent_min_max(
-                    representation_values,
-                    sorted_attr,
-                    sorted_weights,
+        # All steps below are batched over attributes: rows are attributes.
+        # Per-cluster centroid value of every time step, cluster-major per row.
+        cluster_means = np.round(
+            np.concatenate(
+                [candidates_3d[mask].mean(axis=0) for mask in member_masks], axis=1
+            ),
+            10,
+        )
+        # sort all (cluster, time step) slots by centroid value
+        order = np.argsort(cluster_means, axis=1, kind="stable")
+        sorted_weights = weights[order]
+        # sort all values of the original time series
+        sorted_attr = np.sort(
+            candidates_3d.transpose(1, 0, 2).reshape(num_attributes, -1),
+            axis=1,
+            kind="stable",
+        )
+        # take mean of sections of the original duration curve according to
+        # the cluster and its weight the respective section is assigned to
+        representation_values = _section_means(sorted_attr, sorted_weights)
+        # respect max and min of the attributes
+        if represent_min_max:
+            for a in range(num_attributes):
+                representation_values[a] = _represent_min_max(
+                    representation_values[a],
+                    sorted_attr[a],
+                    sorted_weights[a],
                     options.minmax_max_passes,
                     options.minmax_tolerance,
                 )
 
-            # arrange the representation values back into (cluster, time step) slots
-            slots = np.empty(n_clusters * n_timesteps_per_period)
-            slots[order] = representation_values
-            centers[:, a, :] = slots.reshape(n_clusters, n_timesteps_per_period)
+        # arrange the representation values back into (cluster, time step) slots
+        rows = np.arange(num_attributes)[:, None]
+        slots = np.empty_like(representation_values)
+        slots[rows, order] = representation_values
+        centers = slots.reshape(
+            num_attributes, n_clusters, n_timesteps_per_period
+        ).transpose(1, 0, 2)
 
         return list(centers.reshape(n_clusters, -1))
+
+
+def _section_means(sorted_values: np.ndarray, section_sizes: np.ndarray) -> np.ndarray:
+    """Row-wise means of consecutive sections, section sizes given per row.
+
+    Equivalent to cutting each row of ``sorted_values`` into consecutive
+    sections of ``section_sizes`` elements and taking each section's mean.
+    Computed with a single ``np.add.reduceat`` over the row-concatenated
+    values; each row's section offsets are shifted by the row's start, so no
+    section crosses a row boundary.
+
+    ``reduceat`` needs strictly increasing offsets: a zero-size section would
+    not crash but silently corrupt its slot. Sizes here are cluster occurrence
+    counts (>= 1 by construction), so the guard only fires if an upstream
+    refactor lets an empty cluster through.
+    """
+    if np.any(section_sizes <= 0):
+        raise ValueError(
+            "Internal error: empty cluster reached the duration "
+            "representation (zero-size duration-curve section)."
+        )
+    n_rows, n_values = sorted_values.shape
+    starts_within_row = np.concatenate(
+        (
+            np.zeros((n_rows, 1), dtype=np.int64),
+            np.cumsum(section_sizes[:, :-1], axis=1),
+        ),
+        axis=1,
+    )
+    flat_starts = (starts_within_row + np.arange(n_rows)[:, None] * n_values).ravel()
+    section_sums = np.add.reduceat(sorted_values.ravel(), flat_starts)
+    return section_sums.reshape(section_sizes.shape) / section_sizes
 
 
 def _pin_min_max_preserve_sum(
