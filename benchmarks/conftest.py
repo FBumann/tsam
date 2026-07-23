@@ -2,26 +2,37 @@
 
 import pytest
 
+TIERS = (
+    (
+        "slow",
+        "--slow",
+        "Run slow-tier benchmarks (MILP k-medoids, large column counts).",
+    ),
+    (
+        "large",
+        "--large",
+        "Run production-sized benchmarks (multi-year x hundreds of columns).",
+    ),
+)
+
 
 def pytest_addoption(parser):
-    parser.addoption(
-        "--slow",
-        action="store_true",
-        default=False,
-        help="Run slow-tier benchmarks (MILP k-medoids, large column counts).",
-    )
+    for _marker, flag, help_text in TIERS:
+        parser.addoption(flag, action="store_true", default=False, help=help_text)
 
 
 def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "slow: slow-tier benchmark, only runs with --slow"
-    )
+    for marker, flag, _help_text in TIERS:
+        config.addinivalue_line(
+            "markers", f"{marker}: {marker}-tier benchmark, only runs with {flag}"
+        )
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--slow"):
-        return
-    skip = pytest.mark.skip(reason="slow tier: pass --slow to run")
-    for item in items:
-        if "slow" in item.keywords:
-            item.add_marker(skip)
+    for marker, flag, _help_text in TIERS:
+        if config.getoption(flag):
+            continue
+        skip = pytest.mark.skip(reason=f"{marker} tier: pass {flag} to run")
+        for item in items:
+            if marker in item.keywords:
+                item.add_marker(skip)

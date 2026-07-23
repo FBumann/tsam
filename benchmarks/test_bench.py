@@ -10,6 +10,7 @@ Usage::
 
     pytest benchmarks/ --benchmark-only                       # quick tier, timing
     pytest benchmarks/ --benchmark-only --slow                # + k-medoids, 96 columns
+    pytest benchmarks/ --benchmark-only --large               # + production-sized cases
     pytest benchmarks/ --benchmark-only --benchmark-memory    # + memray peak memory
     pytest benchmarks/ --benchmark-only --benchmark-save=dev  # snapshot to .benchmarks/
 
@@ -169,6 +170,37 @@ def test_extremes_3y(benchmark):
         extremes=ExtremeConfig(
             method="new_cluster", max_value=["Load"], min_value=["T"]
         ),
+    )
+
+
+LARGE_OPTS = {"rounds": 3, "iterations": 1, "warmup_rounds": 0}
+
+
+def _wide_years(n_columns: int, n_years: int) -> pd.DataFrame:
+    """wide.csv tiled to ``n_columns`` and ``n_years`` with a continuous index."""
+    df = pd.concat([_wide_columns(n_columns)] * n_years, ignore_index=True)
+    df.index = pd.date_range("2020-01-01", periods=len(df), freq="h")
+    return df
+
+
+@pytest.mark.large
+@pytest.mark.benchmark(group="large")
+def test_large_wide(benchmark):
+    """Production-sized single frame: two years hourly x 256 columns."""
+    benchmark.extra_info["n_timesteps"] = 2 * 8760
+    benchmark.extra_info["n_columns"] = 256
+    data = _wide_years(256, 2)
+    benchmark.pedantic(lambda: aggregate(data, N_CLUSTERS), **LARGE_OPTS)
+
+
+@pytest.mark.large
+@pytest.mark.benchmark(group="large")
+def test_large_scenarios(benchmark):
+    """Eight sequential year x 64-column aggregations (multi-scenario workload)."""
+    benchmark.extra_info["n_slices"] = 8
+    data = _wide_columns(64)
+    benchmark.pedantic(
+        lambda: [aggregate(data, N_CLUSTERS) for _ in range(8)], **LARGE_OPTS
     )
 
 
