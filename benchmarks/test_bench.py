@@ -88,7 +88,13 @@ def test_scale_timesteps(benchmark, n_timesteps):
 @pytest.mark.benchmark(group="scale-columns")
 @pytest.mark.parametrize(
     "n_columns",
-    [4, 12, 48, pytest.param(96, marks=pytest.mark.slow)],
+    [
+        4,
+        12,
+        48,
+        pytest.param(96, marks=pytest.mark.slow),
+        pytest.param(400, marks=pytest.mark.slow),
+    ],
 )
 def test_scale_columns(benchmark, n_columns):
     """Baseline config over a growing number of columns (full year)."""
