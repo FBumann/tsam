@@ -1,0 +1,154 @@
+"""Performance benchmarks for :func:`tsam.aggregate`.
+
+Star design: one baseline configuration (hourly data, 8 typical days,
+hierarchical clustering with medoid representation) and one dimension varied
+per test function. Every parametrize value is a scalar, so each one becomes a
+plottable pytest-benchmem dim; with one axis per function, ``benchmem plot
+--x <dim>`` slices out exactly that function's scaling curve.
+
+Usage::
+
+    pytest benchmarks/ --benchmark-only                       # quick tier, timing
+    pytest benchmarks/ --benchmark-only --slow                # + k-medoids, 96 columns
+    pytest benchmarks/ --benchmark-only --benchmark-memory    # + memray peak memory
+    pytest benchmarks/ --benchmark-only --benchmark-save=dev  # snapshot to .benchmarks/
+
+    benchmem compare '*base*' '*dev*' --columns peak --diff
+    benchmem plot .benchmarks/*/0001_base.json --columns peak --x n_timesteps
+    benchmem plot .benchmarks/*/0001_base.json --columns peak --x n_columns
+"""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from pathlib import Path
+
+import pandas as pd
+import pytest
+
+from tsam import ClusterConfig, ExtremeConfig, SegmentConfig, aggregate
+
+ROOT = Path(__file__).resolve().parent.parent
+TESTDATA_CSV = ROOT / "docs" / "data" / "testdata.csv"
+WIDE_CSV = ROOT / "test" / "data" / "wide.csv"
+
+N_CLUSTERS = 8
+ROUNDS = 10
+
+
+@lru_cache
+def _load(path: str) -> pd.DataFrame:
+    return pd.read_csv(path, index_col=0, parse_dates=True)
+
+
+def _testdata() -> pd.DataFrame:
+    """One year of hourly GHI/T/Wind/Load data (8760 x 4)."""
+    return _load(str(TESTDATA_CSV))
+
+
+def _wide_columns(n_columns: int) -> pd.DataFrame:
+    """wide.csv tiled with unique column names up to ``n_columns`` (8760 rows)."""
+    base = _load(str(WIDE_CSV))
+    repeats = -(-n_columns // base.shape[1])
+    tiled = pd.concat([base.add_suffix(f"_{i}") for i in range(repeats)], axis=1)
+    return tiled.iloc[:, :n_columns]
+
+
+def _bench(benchmark, data: pd.DataFrame, **kwargs) -> None:
+    benchmark.pedantic(
+        lambda: aggregate(data, N_CLUSTERS, **kwargs),
+        rounds=ROUNDS,
+        warmup_rounds=1,
+    )
+
+
+@pytest.mark.benchmark(group="scale-timesteps")
+@pytest.mark.parametrize("n_timesteps", [672, 2190, 4380, 8760])
+def test_scale_timesteps(benchmark, n_timesteps):
+    """Baseline config over a growing slice of the year."""
+    _bench(benchmark, _testdata().iloc[:n_timesteps])
+
+
+@pytest.mark.benchmark(group="scale-columns")
+@pytest.mark.parametrize(
+    "n_columns",
+    [4, 12, 48, pytest.param(96, marks=pytest.mark.slow)],
+)
+def test_scale_columns(benchmark, n_columns):
+    """Baseline config over a growing number of columns (full year)."""
+    _bench(benchmark, _wide_columns(n_columns))
+
+
+@pytest.mark.benchmark(group="method")
+@pytest.mark.parametrize(
+    "method", ["averaging", "kmeans", "kmaxoids", "hierarchical", "contiguous"]
+)
+def test_method(benchmark, method):
+    """Clustering methods on the full year, default representation each."""
+    _bench(benchmark, _testdata(), cluster=ClusterConfig(method=method))
+
+
+@pytest.mark.slow
+@pytest.mark.benchmark(group="method")
+def test_method_kmedoids(benchmark):
+    """Exact k-medoids (MILP): truncated to 8 weeks to keep the solve tractable.
+
+    Not size-comparable with :func:`test_method`; the extra_info dims record
+    the reduced input so plots and tables show it.
+    """
+    n_timesteps = 8 * 168
+    benchmark.extra_info["method"] = "kmedoids"
+    benchmark.extra_info["n_timesteps"] = n_timesteps
+    _bench(
+        benchmark,
+        _testdata().iloc[:n_timesteps],
+        cluster=ClusterConfig(method="kmedoids"),
+    )
+
+
+@pytest.mark.benchmark(group="representation")
+@pytest.mark.parametrize(
+    "representation", ["mean", "medoid", "maxoid", "distribution", "minmax_mean"]
+)
+def test_representation(benchmark, representation):
+    """Representations on hierarchical clustering, full year."""
+    _bench(
+        benchmark,
+        _testdata(),
+        cluster=ClusterConfig(method="hierarchical", representation=representation),
+    )
+
+
+@pytest.mark.benchmark(group="feature")
+@pytest.mark.parametrize(
+    "feature", ["baseline", "segmentation", "extremes", "no_rescale"]
+)
+def test_feature(benchmark, feature):
+    """Cost of each pipeline feature toggled onto the baseline, one at a time."""
+    kwargs = {}
+    if feature == "segmentation":
+        kwargs["segments"] = SegmentConfig(n_segments=12)
+    elif feature == "extremes":
+        kwargs["extremes"] = ExtremeConfig(
+            method="new_cluster", max_value=["Load"], min_value=["T"]
+        )
+    elif feature == "no_rescale":
+        kwargs["preserve_column_means"] = False
+    _bench(benchmark, _testdata(), **kwargs)
+
+
+@pytest.mark.benchmark(group="disaggregate")
+def test_disaggregate(benchmark):
+    """Expanding typical-period data back to the full datetime index.
+
+    Reconstruction of the input is eager inside ``aggregate()`` and therefore
+    already timed by every other benchmark; this times the standalone
+    expansion of external (e.g. optimization) results.
+    """
+    benchmark.extra_info["phase"] = "disaggregate"
+    result = aggregate(_testdata(), N_CLUSTERS)
+    benchmark.pedantic(
+        lambda: result.disaggregate(result.cluster_representatives),
+        rounds=ROUNDS,
+        warmup_rounds=1,
+    )
