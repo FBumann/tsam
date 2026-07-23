@@ -27,7 +27,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tsam import ClusterConfig, ExtremeConfig, SegmentConfig, aggregate
+from tsam import ClusterConfig, Distribution, ExtremeConfig, SegmentConfig, aggregate
 
 ROOT = Path(__file__).resolve().parent.parent
 TESTDATA_CSV = ROOT / "docs" / "data" / "testdata.csv"
@@ -124,14 +124,27 @@ def test_method_kmedoids(benchmark):
 
 @pytest.mark.benchmark(group="representation")
 @pytest.mark.parametrize(
-    "representation", ["mean", "medoid", "maxoid", "distribution", "minmax_mean"]
+    "representation",
+    [
+        "mean",
+        "medoid",
+        "maxoid",
+        "distribution",
+        "distribution_global",
+        "minmax_mean",
+    ],
 )
 def test_representation(benchmark, representation):
     """Representations on hierarchical clustering, full year."""
+    rep = (
+        Distribution(scope="global")
+        if representation == "distribution_global"
+        else representation
+    )
     _bench(
         benchmark,
         _testdata(),
-        cluster=ClusterConfig(method="hierarchical", representation=representation),
+        cluster=ClusterConfig(method="hierarchical", representation=rep),
     )
 
 
