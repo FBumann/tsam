@@ -260,6 +260,36 @@ def test_fine_extremes(benchmark):
     )
 
 
+@pytest.mark.large
+@pytest.mark.benchmark(group="headline")
+def test_fine_production(benchmark):
+    """Production-scale FINE workload (the issue #49 shape): two years x 400
+    columns of tiled FINE profiles, 40 typical days, global-scope
+    distribution, 12 segments, peak-demand extremes. ~6 s on tsam 3.4.2."""
+    base = _fine_data()
+    wide = pd.concat([base.add_suffix(f"_{i}") for i in range(10)], axis=1)
+    data = pd.concat([wide] * 2, ignore_index=True)
+    data.index = pd.date_range("2020-01-01", periods=len(data), freq="h")
+    benchmark.extra_info["n_timesteps"] = len(data)
+    benchmark.extra_info["n_columns"] = data.shape[1]
+    benchmark.pedantic(
+        lambda: aggregate(
+            data,
+            40,
+            cluster=ClusterConfig(
+                method="hierarchical", representation=Distribution(scope="global")
+            ),
+            segments=SegmentConfig(n_segments=12),
+            extremes=ExtremeConfig(
+                method="append",
+                max_value=[c for c in data.columns if c.startswith("ElecDemand")],
+            ),
+            preserve_column_means=False,
+        ),
+        **LARGE_OPTS,
+    )
+
+
 @pytest.mark.benchmark(group="accuracy")
 def test_accuracy(benchmark):
     """Lazy accuracy metrics on a fresh 48-column result each round."""
