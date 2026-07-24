@@ -70,9 +70,11 @@ def _quarter_hourly() -> pd.DataFrame:
     return base.reindex(idx).interpolate(method="linear").ffill()
 
 
-def _bench(benchmark, data: pd.DataFrame, **kwargs) -> None:
+def _bench(
+    benchmark, data: pd.DataFrame, n_clusters: int = N_CLUSTERS, **kwargs
+) -> None:
     benchmark.pedantic(
-        lambda: aggregate(data, N_CLUSTERS, **kwargs),
+        lambda: aggregate(data, n_clusters, **kwargs),
         rounds=ROUNDS,
         warmup_rounds=1,
     )
@@ -220,6 +222,41 @@ def test_large_scenarios(benchmark):
     data = _wide_columns(64)
     benchmark.pedantic(
         lambda: [aggregate(data, N_CLUSTERS) for _ in range(8)], **LARGE_OPTS
+    )
+
+
+def _fine_data() -> pd.DataFrame:
+    """FINE 8-region example: 5 profiles x 8 regions, hourly year (8760 x 40)."""
+    return _load(str(ROOT / "benchmarks" / "data" / "fine_multiregional.csv.gz"))
+
+
+@pytest.mark.benchmark(group="headline")
+def test_fine_default(benchmark):
+    """FINE's aggregateTemporally() defaults: 40 typical days, hierarchical +
+    duration representation, 12 segments, no rescale."""
+    _bench(
+        benchmark,
+        _fine_data(),
+        n_clusters=40,
+        cluster=ClusterConfig(method="hierarchical", representation="distribution"),
+        segments=SegmentConfig(n_segments=12),
+        preserve_column_means=False,
+    )
+
+
+@pytest.mark.benchmark(group="headline")
+def test_fine_extremes(benchmark):
+    """FINE defaults plus appended peak-demand extreme periods per region."""
+    data = _fine_data()
+    peak_columns = [c for c in data.columns if c.startswith("ElecDemand")]
+    _bench(
+        benchmark,
+        data,
+        n_clusters=40,
+        cluster=ClusterConfig(method="hierarchical", representation="distribution"),
+        segments=SegmentConfig(n_segments=12),
+        extremes=ExtremeConfig(method="append", max_value=peak_columns),
+        preserve_column_means=False,
     )
 
 
