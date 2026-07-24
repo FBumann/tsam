@@ -9,13 +9,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import numpy as np
     import pandas as pd
-    from sklearn.preprocessing import MinMaxScaler
 
     from tsam.config import (
         ClusterConfig,
         ExtremeConfig,
         SegmentConfig,
     )
+    from tsam.pipeline._scaler import MinMaxScaler
     from tsam.result import ClusteringResult
 
 

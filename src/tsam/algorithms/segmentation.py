@@ -4,7 +4,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pandas as pd
-from sklearn.cluster import AgglomerativeClustering
 
 from tsam.algorithms.representations import representations
 
@@ -170,6 +169,8 @@ def segmentation(
                     n_timesteps_per_period=1,
                 )
         else:
+            from sklearn.cluster import AgglomerativeClustering
+
             # Original clustering logic
             # produce adjacency matrix: Each time step is only connected to its preceding and succeeding one
             adjacency_matrix = np.eye(n_timesteps_per_period, k=1) + np.eye(

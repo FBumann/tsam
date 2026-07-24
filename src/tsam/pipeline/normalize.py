@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import cast
 
 import pandas as pd
-from sklearn.preprocessing import MinMaxScaler
 
 from tsam.pipeline.types import NormalizedData
 
@@ -54,6 +53,8 @@ def normalize(
     Note:
         `denormalize` inverts this transformation back to original units.
     """
+    from tsam.pipeline._scaler import MinMaxScaler
+
     data = data.astype(float)
 
     # Fit MinMaxScaler and normalize
