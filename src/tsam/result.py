@@ -559,8 +559,10 @@ def _validate_disaggregate_input(
         data = data.droplevel(list(range(2, data.index.nlevels)))
 
     # Validate cluster IDs
-    data_clusters = set(data.index.get_level_values(0).unique())
-    expected_clusters = set(clustering.cluster_assignments)
+    cluster_level = data.index.get_level_values(0)
+    unique_clusters = cluster_level.unique()
+    data_clusters = set(unique_clusters)
+    expected_clusters = clustering._cluster_id_set
     if data_clusters != expected_clusters:
         missing = expected_clusters - data_clusters
         extra = data_clusters - expected_clusters
@@ -583,12 +585,15 @@ def _validate_disaggregate_input(
         expected = clustering.n_timesteps_per_period
         kind = "timesteps"
 
-    for cluster in data.index.get_level_values(0).unique():
-        n_in_cluster = len(data.loc[cluster])
-        if n_in_cluster != expected:
-            raise ValueError(
-                f"cluster {cluster} has {n_in_cluster} {kind}, expected {expected}"
-            )
+    counts = cluster_level.value_counts()
+    mismatched = counts[counts != expected]
+    if len(mismatched):
+        # Report the first offending cluster in index order, as a row-wise scan would.
+        cluster = next(c for c in unique_clusters if c in mismatched.index)
+        raise ValueError(
+            f"cluster {cluster} has {int(mismatched[cluster])} {kind}, "
+            f"expected {expected}"
+        )
 
     return data
 
@@ -636,6 +641,79 @@ def _expand_segments_to_timesteps(
     return cast("pd.DataFrame", pd.concat(parts))
 
 
+def _period_block_labels(index: pd.MultiIndex) -> np.ndarray | None:
+    """Cluster labels per block if the index is a regular period grid.
+
+    A regular grid gives every cluster one contiguous block of equal length,
+    each block carrying the same ascending timestep labels — the layout of
+    every typical-period frame tsam produces. On such a grid, expansion is a
+    gather along the cluster axis rather than an unstack/stack round trip.
+
+    Args:
+        index: Two-level ``(cluster, timestep)`` MultiIndex.
+
+    Returns:
+        The cluster label of each block, or None if the grid is irregular.
+    """
+    n_rows = len(index)
+    clusters = index.get_level_values(0).to_numpy()
+    starts = np.flatnonzero(np.concatenate(([True], clusters[1:] != clusters[:-1])))
+    n_blocks = len(starts)
+    if n_blocks == 0 or n_rows % n_blocks:
+        return None
+
+    n_timesteps = n_rows // n_blocks
+    if not np.array_equal(starts, np.arange(n_blocks) * n_timesteps):
+        return None
+
+    block_labels = clusters[starts]
+    if not pd.Index(block_labels).is_unique:
+        return None
+
+    timesteps = index.get_level_values(1).to_numpy().reshape(n_blocks, n_timesteps)
+    if not (timesteps == timesteps[0]).all():
+        return None
+    first = pd.Index(timesteps[0])
+    if not (first.is_monotonic_increasing and first.is_unique):
+        return None
+
+    return block_labels
+
+
+def _block_positions(
+    block_labels: np.ndarray,
+    cluster_assignments: tuple[int, ...],
+) -> np.ndarray | None:
+    """Positions in ``block_labels`` for each assigned cluster, or None if unknown.
+
+    Args:
+        block_labels: Cluster label of each block, in index order.
+        cluster_assignments: Cluster assignment for each original period.
+
+    Returns:
+        Integer positions to gather, or None if any assignment is not a known
+        block label.
+    """
+    assignments = np.asarray(cluster_assignments)
+    n_blocks = len(block_labels)
+    identity = block_labels.dtype.kind in "iu" and np.array_equal(
+        block_labels, np.arange(n_blocks)
+    )
+    if identity:
+        # The usual case: clusters are labelled 0..n-1, so labels are positions.
+        if (
+            assignments.dtype.kind in "iu"
+            and ((assignments >= 0) & (assignments < n_blocks)).all()
+        ):
+            return assignments
+        return None
+
+    positions = pd.Index(block_labels).get_indexer(pd.Index(assignments))
+    if (positions < 0).any():
+        return None
+    return positions
+
+
 def _expand_periods(
     data: pd.DataFrame,
     cluster_assignments: tuple[int, ...],
@@ -652,6 +730,27 @@ def _expand_periods(
     Returns:
         Flat DataFrame with integer index, one row per original timestep.
     """
+    fast = _expand_periods_fast(data, cluster_assignments)
+    if fast is not None:
+        return fast
+    return _expand_periods_pandas(data, cluster_assignments)
+
+
+def _expand_periods_pandas(
+    data: pd.DataFrame,
+    cluster_assignments: tuple[int, ...],
+) -> pd.DataFrame:
+    """Expand periods via unstack/stack, for any index layout or dtype mix.
+
+    The general fallback behind :func:`_expand_periods_fast`.
+
+    Args:
+        data: Typical-period data with ``(cluster, timestep)`` MultiIndex.
+        cluster_assignments: Cluster assignment for each original period.
+
+    Returns:
+        Flat DataFrame with integer index, one row per original timestep.
+    """
     unstacked = data.unstack(level=1)  # rows=cluster, cols=(col, timestep)
     expanded = unstacked.loc[list(cluster_assignments)]
     expanded.index = range(len(cluster_assignments))
@@ -660,6 +759,59 @@ def _expand_periods(
     result: pd.DataFrame = expanded.stack(future_stack=True, level=-1)  # type: ignore[assignment]
     result.index = pd.RangeIndex(len(result))
     return result
+
+
+def _expand_periods_fast(
+    data: pd.DataFrame,
+    cluster_assignments: tuple[int, ...],
+) -> pd.DataFrame | None:
+    """Expand periods by gathering rows in numpy, or None if not applicable.
+
+    Applies when the index is a regular period grid and every column shares one
+    numpy dtype, so the values form a single reshapeable block. Anything else
+    (irregular grid, mixed or extension dtypes, unknown cluster labels) returns
+    None and the caller falls back to the general pandas path.
+
+    The gather writes into a pre-transposed buffer so the result can be wrapped
+    without copying while keeping pandas' native column-major block layout.
+
+    Args:
+        data: Typical-period data with ``(cluster, timestep)`` MultiIndex.
+        cluster_assignments: Cluster assignment for each original period.
+
+    Returns:
+        Flat DataFrame with a RangeIndex, or None if the fast path does not apply.
+    """
+    dtypes = data.dtypes.to_numpy()
+    if len(dtypes) == 0 or not isinstance(dtypes[0], np.dtype):
+        return None
+    if not (dtypes == dtypes[0]).all():
+        return None
+
+    block_labels = _period_block_labels(data.index)  # type: ignore[arg-type]
+    if block_labels is None:
+        return None
+
+    positions = _block_positions(block_labels, cluster_assignments)
+    if positions is None:
+        return None
+
+    n_blocks = len(block_labels)
+    n_timesteps = len(data) // n_blocks
+    n_columns = data.shape[1]
+    n_periods = len(positions)
+
+    source = data.to_numpy().T.reshape(n_columns, n_blocks, n_timesteps)
+    gathered = np.empty((n_columns, n_periods, n_timesteps), dtype=source.dtype)
+    np.take(source, positions, axis=1, out=gathered)
+    values = gathered.reshape(n_columns, n_periods * n_timesteps).T
+
+    return pd.DataFrame(
+        values,
+        index=pd.RangeIndex(n_periods * n_timesteps),
+        columns=data.columns,
+        copy=False,
+    )
 
 
 @dataclass(frozen=True)
@@ -892,10 +1044,15 @@ class ClusteringResult:
 
         return tuple(assignments_list), tuple(durations_list), centers
 
+    @cached_property
+    def _cluster_id_set(self) -> frozenset[int]:
+        """Distinct cluster IDs, cached so repeated disaggregation stays cheap."""
+        return frozenset(self.cluster_assignments)
+
     @property
     def n_clusters(self) -> int:
         """Number of clusters (typical periods)."""
-        return len(set(self.cluster_assignments))
+        return len(self._cluster_id_set)
 
     @property
     def n_original_periods(self) -> int:
