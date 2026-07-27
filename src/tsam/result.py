@@ -618,6 +618,81 @@ def _expand_segments_to_timesteps(
         Data with ``(cluster, timestep)`` MultiIndex at full resolution.
         Only the first timestep of each segment has values; the rest are NaN.
     """
+    fast = _expand_segments_fast(data, segment_durations)
+    if fast is not None:
+        return fast
+    return _expand_segments_pandas(data, segment_durations)
+
+
+def _expand_segments_fast(
+    data: pd.DataFrame,
+    segment_durations: tuple[tuple[int, ...], ...],
+) -> pd.DataFrame | None:
+    """Scatter segment values into a NaN buffer, or None if not applicable.
+
+    Applies on a regular ``(cluster, segment)`` grid whose columns share one
+    numpy dtype and whose periods all have the same length. Everything else
+    returns None for the caller to handle on the general pandas path.
+
+    Args:
+        data: Segmented data with ``(cluster, segment)`` MultiIndex.
+        segment_durations: Duration per segment per cluster, ordered by sorted
+            cluster ID.
+
+    Returns:
+        Data with ``(cluster, timestep)`` MultiIndex, or None if the fast path
+        does not apply.
+    """
+    dtypes = data.dtypes.to_numpy()
+    if len(dtypes) == 0 or not isinstance(dtypes[0], np.dtype):
+        return None
+    if not (dtypes == dtypes[0]).all() or dtypes[0].kind not in "fiub":
+        return None
+
+    block_labels = _period_block_labels(data.index)  # type: ignore[arg-type]
+    if block_labels is None:
+        return None
+
+    n_blocks = len(block_labels)
+    n_segments = len(data) // n_blocks
+    if len(segment_durations) != n_blocks:
+        return None
+    if any(len(d) != n_segments for d in segment_durations):
+        return None
+
+    period_lengths = {sum(d) for d in segment_durations}
+    if len(period_lengths) != 1:
+        return None
+    n_timesteps = period_lengths.pop()
+
+    # segment_durations is ordered by sorted cluster ID, the index by appearance.
+    ranks = np.argsort(np.argsort(block_labels))
+    durations = np.asarray(segment_durations)[ranks]
+    starts = np.zeros((n_blocks, n_segments), dtype=np.intp)
+    starts[:, 1:] = np.cumsum(durations, axis=1)[:, :-1]
+    rows = (np.arange(n_blocks)[:, None] * n_timesteps + starts).ravel()
+
+    values = np.full((n_blocks * n_timesteps, data.shape[1]), np.nan)
+    values[rows] = data.to_numpy()
+    index = pd.MultiIndex.from_product([block_labels, range(n_timesteps)])
+    return pd.DataFrame(values, index=index, columns=data.columns)
+
+
+def _expand_segments_pandas(
+    data: pd.DataFrame,
+    segment_durations: tuple[tuple[int, ...], ...],
+) -> pd.DataFrame:
+    """Expand segments cluster by cluster, for any index layout or dtype mix.
+
+    The general fallback behind :func:`_expand_segments_fast`.
+
+    Args:
+        data: Segmented data with ``(cluster, segment)`` MultiIndex.
+        segment_durations: Duration per segment per cluster.
+
+    Returns:
+        Data with ``(cluster, timestep)`` MultiIndex at full resolution.
+    """
     clusters = data.index.get_level_values(0).unique()
     # Map cluster IDs to their segment durations. segment_durations is ordered
     # by unique cluster ID (sorted), not by positional index — so we zip with
