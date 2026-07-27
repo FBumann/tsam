@@ -189,9 +189,11 @@ def add_extreme_periods(
             best_types = extreme_dists.argmin(axis=1)
             best_dists = extreme_dists[np.arange(len(profiles)), best_types]
 
-            for i in np.nonzero(best_dists < own_dists)[0]:
-                if i not in extreme_step_nos:
-                    new_cluster_order[int(i)] = new_cluster_nos[best_types[i]]
+            for period_no in np.nonzero(best_dists < own_dists)[0]:
+                if period_no not in extreme_step_nos:
+                    new_cluster_order[int(period_no)] = new_cluster_nos[
+                        best_types[period_no]
+                    ]
 
     elif extremes.method == "replace":
         new_cluster_centers = list(cluster_centers)
