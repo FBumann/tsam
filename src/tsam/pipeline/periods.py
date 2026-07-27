@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 import numpy as np
 import pandas as pd
 
@@ -111,7 +113,7 @@ def _unstack_with_pandas(
     unstacked.index = pd.MultiIndex.from_arrays(
         [step_index, period_index], names=["TimeStep", "PeriodNum"]
     )
-    return unstacked.unstack(level="TimeStep")  # type: ignore[return-value]
+    return cast("pd.DataFrame", unstacked.unstack(level="TimeStep"))
 
 
 def add_period_sum_features(
