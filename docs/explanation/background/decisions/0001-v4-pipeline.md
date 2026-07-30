@@ -14,7 +14,7 @@ The rewrite aimed to address three problems. First, improve understandability fo
 
 ## Decision
 
-The aggregation flow is implemented as a sequence of **pure functions** organised under [`src/tsam/pipeline/`](https://github.com/FZJ-IEK3-VSA/tsam/tree/develop/src/tsam/pipeline), orchestrated by `run_pipeline()` in `pipeline/__init__.py`. Configuration is passed in as immutable dataclasses (`PipelineConfig` composed of `ClusterConfig`, `ExtremeConfig`, `SegmentConfig`). The user-facing entry point is `tsam.aggregate()` in [`src/tsam/api.py`](https://github.com/FZJ-IEK3-VSA/tsam/blob/develop/src/tsam/api.py), which builds the config, calls the pipeline, and wraps the output as an `AggregationResult`.
+The aggregation flow is implemented as a sequence of **pure functions** organized under [`src/tsam/pipeline/`](https://github.com/FZJ-IEK3-VSA/tsam/tree/develop/src/tsam/pipeline), orchestrated by `run_pipeline()` in `pipeline/__init__.py`. Configuration is passed in as immutable dataclasses (`PipelineConfig` composed of `ClusterConfig`, `ExtremeConfig`, `SegmentConfig`). The user-facing entry point is `tsam.aggregate()` in [`src/tsam/api.py`](https://github.com/FZJ-IEK3-VSA/tsam/blob/develop/src/tsam/api.py), which builds the config, calls the pipeline, and wraps the output as an `AggregationResult`.
 
 ## Consequences
 
@@ -22,6 +22,6 @@ The aggregation flow is implemented as a sequence of **pure functions** organise
 
 **Easier to test.** Stages can be exercised in isolation by constructing the input dataclass directly. Failures point at the specific stage rather than at a single thousand-line method.
 
-**Public surface is narrower and typed.** Users interact with `tsam.aggregate()`, `ClusterConfig`/`SegmentConfig`/`ExtremeConfig` for inputs, and `AggregationResult` for outputs. Internal types (`PipelineConfig`, `PreparedData`, `ClusteringOutput`, etc.) are not exported.
+**Public surface is narrower and typed.** Users interact with `tsam.aggregate()`, `ClusterConfig`/`SegmentConfig`/`ExtremeConfig` for inputs, and `AggregationResult` for outputs. Internal types (`PipelineConfig`, `PreparedData`, `ClusterAssignment`, etc.) are not exported.
 
 **The legacy API has been removed.** In v3 the legacy `TimeSeriesAggregation.create_typical_periods()` was kept importable and functional, emitting a `LegacyAPIWarning` to flag it as deprecated. v4 completes that deprecation by removing the class-based API entirely; `tsam.aggregate()` is the single entry point. The [v2 to v3 migration guide](../../../migration/v2-to-v3.md) maps every old parameter to its replacement.

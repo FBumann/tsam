@@ -6,28 +6,64 @@ function instead. If you are coming from v2, start with the
 [v2 to v3 guide](v2-to-v3.md), which maps every old parameter to its
 current equivalent, then return here.
 
-There are also behavioral changes that may affect your results.
+Beyond the API removal there are behavioural changes. Most need nothing from
+you — these are the ones that do:
 
-## Weight semantics
+| If you… | See |
+|---|---|
+| set a per-column representation on **both** `ClusterConfig` and `SegmentConfig` | [Cluster and segment representations](#cluster-and-segment-representations-are-resolved-independently) — v3 ignored the cluster one |
+| index result columns by position | [Column order](#column-order-new-api-only) |
+| pass a non-datetime index without `temporal_resolution` | [Resolution defaults](#resolution-defaults-for-non-datetime-indices) |
+| upgrade from **3.4.1 or earlier** and use `distribution_minmax` / `maxoid` | [Integral and min/max preservation](#integral-and-minmax-preservation) |
+| transfer a clustering built with `scale_by_column_means` | [Transferring a clustering](#transferring-a-clustering-clusteringresultapply) |
+| rely on a `MinMaxMean` column name that does not exist | [Configurations that now raise or warn](#configurations-that-now-raise-or-warn) |
 
-`weights` (top-level parameter to `aggregate()`) now affects
-**only** the clustering distance calculation. Previously, weights were baked
-into normalized data, which forced rescaling, reconstruction, and accuracy
-computation to compensate. In v4, all those steps operate on unweighted data.
+Weight handling and representative tie-breaking also changed, but neither
+alters results for anyone coming from 3.4.2.
+
+## Cluster and segment representations are resolved independently
+
+!!! warning "v3 silently ignored a setting you passed"
+
+    If you set a per-column representation (`MinMaxMean`) on **both**
+    `ClusterConfig` and `SegmentConfig`, v3 discarded the cluster one entirely.
+    Not partially, not merged — ignored. Your cluster representatives were built
+    from the *segment* column assignment, whatever you asked for.
+
+    Measured on v3.4.2: `cluster=MinMaxMean(max_columns=["GHI"])` produces
+    **byte-identical** output to `cluster=MinMaxMean(min_columns=["Load"])` when
+    the segment representation is `min_columns=["Load"]` — the cluster setting
+    makes no difference at all. On v4 the two differ by 601.5.
+
+The two are separate settings, but v3 resolved them into a **single** per-column
+`representationDict` and applied the segment one last:
+
+```python
+tsam.aggregate(
+    data,
+    n_clusters=8,
+    cluster=ClusterConfig(representation=MinMaxMean(max_columns=["GHI"])),
+    segments=SegmentConfig(n_segments=6, representation=MinMaxMean(min_columns=["Load"])),
+)
+# v3: BOTH stages used {Load: min}; the cluster's {GHI: max} was discarded.
+# v4: the cluster stage uses {GHI: max}, the segment stage uses {Load: min}.
+```
+
+Each stage now builds its own dict from its own configuration.
 
 **What changes:**
 
-- Cluster *assignments* are identical (the weighted distance matrix is
-  mathematically equivalent).
-- With medoid or maxoid representation and non-uniform weights, the selected
-  representative may differ because the medoid is now chosen in the unweighted
-  output space.
-- Across all golden regression tests, the **only** affected configuration is
-  `hierarchical_weighted` — everything else is bit-identical.
+- Configurations setting a per-column representation on **both** stages now
+  honour both. Cluster representatives change — to the ones you configured.
+- Configurations setting it on only one stage are unaffected. That is the
+  overwhelming majority: every golden regression case is bit-identical except
+  the one added to cover this.
 
-**Action required:** If you use non-uniform `weights` with medoid or maxoid
-representation, verify that your downstream results are acceptable. For most
-users, this change is invisible.
+**Action required:** If you set a per-column representation on both
+`ClusterConfig` and `SegmentConfig`, treat your v3 results for that
+configuration as wrong rather than merely different — they were computed with a
+column assignment you did not ask for. Regenerate any pinned references, and
+re-check any conclusion that rested on them.
 
 ## Column order (new API only)
 
@@ -80,7 +116,17 @@ them against the cap. This is two independent changes with different scopes:
    So "I only use the defaults" does not by itself mean your results are
    unchanged — it depends on whether any representative hit the envelope.
 
-**What changes:**
+!!! info "Already released in 3.4.2 — no change if you are upgrading from there"
+
+    This landed on the v3 line as
+    [#373](https://github.com/FZJ-IEK3-VSA/tsam/issues/373), released in
+    **3.4.2**. Measured against 3.4.2, v4 is identical here: `distribution_minmax`
+    agrees to within `1e-14`, with segmentation and with rescaling disabled alike.
+
+    It is a change only if you are coming from **3.4.1 or earlier**, where it
+    arrived as a one-line bug-fix entry rather than a flagged behaviour change.
+
+**What changes, coming from 3.4.1 or earlier:**
 
 - Results differ for `distribution_minmax` (new min/max algorithm) and for any
   configuration where rescaling clipped values against the envelope. The largest
@@ -88,17 +134,58 @@ them against the cap. This is two independent changes with different scopes:
 - The differences are usually small relative to the values but can reach ~20% at
   an individual peak cell, and are **not** always accompanied by the
   "maximal value … exceeds" warning.
-- On the packaged example datasets, the common `mean` / `medoid` / `kmeans`
-  paths are bit-identical to v3; the observed changes are confined to
-  `distribution_minmax`, `maxoid`/`kmaxoids`, and rescale-heavy configurations
-  (contiguous, extremes). Note this is an observation on the example data, not a
-  guarantee — the rescaling change above can in principle affect any
-  representation on other data.
+- The common `mean` / `medoid` / `kmeans` paths are bit-identical; the observed
+  changes are confined to `distribution_minmax`, `maxoid`/`kmaxoids`, and
+  rescale-heavy configurations. That is an observation on the example data, not
+  a guarantee — the rescaling change can in principle affect any representation
+  on other data.
 
-**Action required:** If you use `distribution_minmax`, `maxoid`/`kmaxoids`, or
-rely on exact aggregated values with rescaling enabled, regenerate any pinned
-references. Aggregate metrics (integral, min/max envelope) are preserved or
-improved.
+**Action required:** None if you are on 3.4.2. From 3.4.1 or earlier, if you use
+`distribution_minmax`, `maxoid`/`kmaxoids`, or rely on exact aggregated values
+with rescaling enabled, regenerate any pinned references. Aggregate metrics
+(integral, min/max envelope) are preserved or improved.
+
+## Representative selection is deterministic on ties
+
+`medoid` and `maxoid` picked a cluster member with a bare `argmin`/`argmax` over
+summed distances. Ties are common — the two members of a two-member group are
+always equidistant — and were decided by floating-point noise, so the same data
+could give a different representative on a different machine. Distances are now
+rounded before comparison and the earliest member wins.
+
+**Action required:** none, unless you pinned a value that fell on a tie — in
+which case it was never reproducible anyway.
+
+## Transferring a clustering (`ClusteringResult.apply()`)
+
+- **The full `ClusterConfig` is replayed.** Only the representation was, so
+  `scale_by_column_means` (v3: `normalize_column_means`) reverted to its default
+  and the result came back silently rescaled.
+- **A padded partial last period is accepted.** Such a clustering previously
+  raised for any data, including its own input.
+- **`cluster_centers` is correct for `use_duration_curves`.** v3 recorded
+  indices from a different criterion than the centers, so a replay could produce
+  different typical periods. `aggregate()` itself is unaffected — only the
+  recorded indices, and therefore the transfer.
+- **Inexact transfers warn.** Both `extremes="replace"` and
+  `extremes="append"`/`"new_cluster"` with a *computed* representation
+  (`mean`, `distribution`, …) now warn. v3's advice to use `append` or
+  `new_cluster` for exact transfer held only for `medoid`/`maxoid`.
+
+**Action required:** if you transfer a clustering built with
+`scale_by_column_means=True`, the result changes — to the one you configured.
+
+## Configurations that now raise or warn
+
+| Configuration | v3 | v4 |
+|---|---|---|
+| Column in both `MinMaxMean.max_columns` and `min_columns` | silently `max` | `ValueError` |
+| `MinMaxMean` naming a column not in the data | silently ignored | `ValueError` |
+| `ClusterConfig.representation` with `use_duration_curves=True` | silently ignored | `UserWarning` |
+| Series length not a whole number of periods | padded silently | padded, with a `UserWarning` |
+
+**Action required:** a typo in a `MinMaxMean` column name used to be a no-op and
+is now an error.
 
 ## Removed deprecated APIs
 
@@ -127,7 +214,30 @@ configuration. Passing `weights=` to `ClusterConfig` now raises `TypeError`.
   whose distribution is preserved is a segment, not a cluster; `"local"` is
   stage-neutral (each group's own distribution) versus `"global"` (the enclosing
   whole's). The old value still works — it is normalized to `"local"` and emits a
-  `FutureWarning` — and is behaviourally identical.
+  `FutureWarning` — and is behaviorally identical.
+
+## Weight semantics — restructured, not changed
+
+`weights` is applied in one place now. v3 multiplied it into the normalized
+series before unstacking, so every downstream step saw weighted data and had to
+divide it back out again — rescaling, reconstruction and accuracy each carried
+their own compensation. v4 applies it to the clustering candidates only, and
+removes it once, after the set of representatives is final.
+
+**The same things are weighted either way:** the clustering distance, medoid and
+maxoid selection, extreme-period detection, and segment boundaries. And the same
+things are unweighted: rescaling, denormalization, the returned values, and the
+accuracy metrics. Only the location of the division moved.
+
+**What changes: nothing observable.** Every configuration in the golden matrix
+matches v3.4.2 to within `2e-13`, medoid and maxoid under non-uniform weights
+included. For `hierarchical_weighted` the agreement is total — same cluster
+assignments, same reconstruction, and the same selected medoid periods
+(`245, 78, 64, 17, 320, 201, 319, 263`). That is structural rather than lucky:
+both versions select the representative from weighted candidates, so the choice
+cannot diverge.
+
+**Action required:** None.
 
 ## Internal changes (no action required)
 
