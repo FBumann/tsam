@@ -22,6 +22,52 @@ _DEFAULT_REPRESENTATION = {
 }
 
 
+def _ward_labels(candidates: np.ndarray, n_clusters: int) -> np.ndarray:
+    """Ward clustering into ``n_clusters`` groups, sklearn-compatible labels.
+
+    Builds the Ward dendrogram with :func:`scipy.cluster.hierarchy.linkage`,
+    which shares scikit-learn's node numbering (leaves ``0..n-1``, the ``i``-th
+    merge becoming node ``n + i``). Cutting and labelling the tree with the same
+    heap traversal scikit-learn's ``AgglomerativeClustering`` uses reproduces its
+    exact cluster ids without importing scikit-learn — so the cluster ordering,
+    and every result keyed on it, is unchanged from the previous backend.
+    """
+    from heapq import heappush, heappushpop
+
+    from scipy.cluster.hierarchy import linkage
+
+    children = linkage(candidates, method="ward")[:, :2].astype(np.intp)
+    n_leaves = len(candidates)
+
+    # Descend from the single root, splitting the highest node each time, until
+    # ``n_clusters`` subtrees remain (scikit-learn's ``_hc_cut``).
+    nodes = [-(int(children[-1].max()) + 1)]
+    for _ in range(n_clusters - 1):
+        merge = children[-nodes[0] - n_leaves]
+        heappush(nodes, -int(merge[0]))
+        heappushpop(nodes, -int(merge[1]))
+
+    labels = np.zeros(n_leaves, dtype=np.intp)
+    for label, node in enumerate(nodes):
+        labels[_leaves_of(-node, children, n_leaves)] = label
+    return labels
+
+
+def _leaves_of(node: int, children: np.ndarray, n_leaves: int) -> list[int]:
+    """Return the original-period indices under a dendrogram ``node``."""
+    if node < n_leaves:
+        return [node]
+    leaves: list[int] = []
+    stack = [node]
+    while stack:
+        current = stack.pop()
+        if current < n_leaves:
+            leaves.append(current)
+        else:
+            stack.extend(int(child) for child in children[current - n_leaves])
+    return leaves
+
+
 def assign_clusters(
     candidates: np.ndarray,
     n_clusters: int,
@@ -70,17 +116,19 @@ def assign_clusters(
         if n_clusters == 1:
             return np.asarray([0] * len(candidates))
 
+        if cluster_method == "hierarchical":
+            # Unconstrained Ward via scipy keeps the default path off sklearn
+            # (~600 ms import) while reproducing its exact cluster ids.
+            return _ward_labels(candidates, n_clusters)
+
+        # contiguous: only adjacent periods may be merged. scipy's hierarchy has
+        # no connectivity constraint, so this keeps sklearn's constrained Ward.
         from sklearn.cluster import AgglomerativeClustering
 
-        if cluster_method == "hierarchical":
-            clustering = AgglomerativeClustering(n_clusters=n_clusters, linkage="ward")
-        else:  # contiguous: only adjacent periods may be merged
-            adjacency_matrix = np.eye(len(candidates), k=1) + np.eye(
-                len(candidates), k=-1
-            )
-            clustering = AgglomerativeClustering(
-                n_clusters=n_clusters, linkage="ward", connectivity=adjacency_matrix
-            )
+        adjacency_matrix = np.eye(len(candidates), k=1) + np.eye(len(candidates), k=-1)
+        clustering = AgglomerativeClustering(
+            n_clusters=n_clusters, linkage="ward", connectivity=adjacency_matrix
+        )
         return np.asarray(clustering.fit_predict(candidates))
 
     raise ValueError(

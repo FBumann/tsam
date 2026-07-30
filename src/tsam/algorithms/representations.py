@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import numpy as np
-from sklearn.metrics.pairwise import euclidean_distances
 
 from tsam.algorithms.duration_representation import duration_representation
 from tsam.config import Distribution, MinMaxMean
@@ -118,6 +117,33 @@ def representations(
     return cluster_centers, cluster_center_indices
 
 
+def _euclidean_distances(
+    x: np.ndarray, y: np.ndarray, symmetric: bool = False
+) -> np.ndarray:
+    """Row-wise Euclidean distances between ``x`` and ``y``.
+
+    Reproduces scikit-learn's ``euclidean_distances`` in numpy — the same
+    BLAS-accelerated expansion ``||x||^2 - 2 x·y + ||y||^2`` in the same
+    accumulation order — so large clusters stay fast (a direct
+    ``scipy.spatial.distance.cdist`` is several times slower here) and the
+    selected medoids/maxoids are bit-identical to the previous backend.
+
+    Args:
+        symmetric: Set when ``x`` and ``y`` are the same points; zeroes the
+            diagonal exactly, matching scikit-learn's self-distance handling so
+            row-sum ties break the same way.
+    """
+    xx = np.einsum("ij,ij->i", x, x)
+    yy = np.einsum("ij,ij->i", y, y)
+    distances = -2.0 * (x @ y.T)
+    distances += xx[:, None]
+    distances += yy[None, :]
+    np.maximum(distances, 0.0, out=distances)
+    if symmetric:
+        np.fill_diagonal(distances, 0.0)
+    return np.sqrt(distances)
+
+
 def maxoid_representation(
     candidates: np.ndarray,
     cluster_order: np.ndarray,
@@ -142,7 +168,7 @@ def maxoid_representation(
     cluster_center_indices = []
     for cluster_num in np.unique(cluster_order):
         indices = np.where(cluster_order == cluster_num)
-        dist_to_dataset = euclidean_distances(candidates, candidates[indices])
+        dist_to_dataset = _euclidean_distances(candidates, candidates[indices])
         max_dist_idx = np.argmax(dist_to_dataset.sum(axis=0))
         cluster_centers.append(candidates[indices][max_dist_idx])
         cluster_center_indices.append(indices[0][max_dist_idx])
@@ -160,7 +186,9 @@ def medoid_representation(
     cluster_center_indices = []
     for cluster_num in np.unique(cluster_order):
         indices = np.where(cluster_order == cluster_num)
-        inner_dist_matrix = euclidean_distances(candidates[indices])
+        inner_dist_matrix = _euclidean_distances(
+            candidates[indices], candidates[indices], symmetric=True
+        )
         min_dist_idx = np.argmin(inner_dist_matrix.sum(axis=0))
         cluster_centers.append(candidates[indices][min_dist_idx])
         cluster_center_indices.append(indices[0][min_dist_idx])
